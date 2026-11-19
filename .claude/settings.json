@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm build)",
+      "Bash(pnpm test*)",
+      "Bash(pnpm typecheck)",
+      "Bash(git diff*)",
+      "Bash(git status*)"
+    ],
+    "ask": [
+      "Bash(git push *)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Edit(./.env)",
+      "Edit(./.env.*)",
+      "Bash(cat .env*)",
+      "Bash(cat ./.env*)",
+      "Bash(head .env*)",
+      "Bash(tail .env*)",
+      "Bash(less .env*)",
+      "Bash(grep * .env*)",
+      "PowerShell(Get-Content .env*)",
+      "PowerShell(gc .env*)",
+      "PowerShell(cat .env*)",
+      "PowerShell(type .env*)",
+      "PowerShell(Select-String * .env*)"
+    ]
+  }
+}

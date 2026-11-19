@@ -1,0 +1,60 @@
+import { sql } from "drizzle-orm";
+import { check, index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+
+// Catalogue tables: categories 1──< products 1──1 stocks.
+// Variants, carts and orders are deliberately out of scope for now.
+
+export type ProductImage = { src: string; alt: string };
+
+export const categories = pgTable("categories", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const products = pgTable(
+  "products",
+  {
+    id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+    slug: text("slug").notNull().unique(),
+    name: text("name").notNull(),
+    categoryId: integer("category_id")
+      .notNull()
+      .references(() => categories.id, { onDelete: "restrict" }),
+    /** Minor units (cents) to avoid floating-point money. */
+    priceCents: integer("price_cents").notNull(),
+    colour: text("colour").notNull(),
+    description: text("description").notNull(),
+    /** Ordered bullet list shown under "Product details". */
+    details: text("details").array().notNull().default(sql`'{}'::text[]`),
+    /** Ordered; the first image is the card shot. Always at least one. */
+    images: jsonb("images").$type<[ProductImage, ...ProductImage[]]>().notNull(),
+    badge: text("badge"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index("products_category_id_idx").on(t.categoryId),
+    check("products_price_cents_non_negative", sql`${t.priceCents} >= 0`),
+  ],
+);
+
+/** One row per product for now; can be keyed by variant or location later. */
+export const stocks = pgTable(
+  "stocks",
+  {
+    productId: integer("product_id")
+      .primaryKey()
+      .references(() => products.id, { onDelete: "cascade" }),
+    quantity: integer("quantity").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [check("stocks_quantity_non_negative", sql`${t.quantity} >= 0`)],
+);

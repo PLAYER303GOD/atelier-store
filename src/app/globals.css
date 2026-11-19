@@ -1,0 +1,342 @@
+@import "tailwindcss";
+
+/*
+ * Design system — luxury-minimal storefront.
+ * Monochrome, hairline borders, square corners, no shadows, small tracked
+ * uppercase labels, generous whitespace, imagery does the talking.
+ *
+ * The default Tailwind colour, type-size, radius and shadow scales are
+ * removed so only the tokens below can be used.
+ */
+
+@theme {
+  /* ── Colour ─────────────────────────────────────────────── */
+  --color-*: initial;
+  --color-white: #ffffff;
+  --color-black: #000000;
+
+  --color-paper: #ffffff; /* page background */
+  --color-ink: #000000; /* primary text, primary buttons */
+  --color-muted: #6b6b6b; /* secondary text (5.3:1 on paper) */
+  --color-subtle: #a3a3a3; /* disabled text, placeholders — never body copy */
+  --color-surface: #f5f5f5; /* product image backdrop, quiet panels */
+  --color-line: #e3e3e3; /* hairline borders and dividers */
+  --color-overlay: rgb(0 0 0 / 0.4); /* scrims behind drawers / modals */
+  --color-error: #b3261e;
+  --color-warning: #8a5300; /* low stock, cautions (6.1:1 on paper) */
+  --color-success: #1e6b3a;
+
+  /* ── Typography ─────────────────────────────────────────── */
+  --text-*: initial;
+
+  /* uppercase labels: eyebrows, badges, meta */
+  --text-caption: 0.6875rem;
+  --text-caption--line-height: 1.4;
+  --text-caption--letter-spacing: 0.08em;
+
+  /* uppercase labels: navigation, buttons, filters */
+  --text-label: 0.75rem;
+  --text-label--line-height: 1.35;
+  --text-label--letter-spacing: 0.06em;
+
+  /* product names, prices, form text */
+  --text-body-sm: 0.8125rem;
+  --text-body-sm--line-height: 1.5;
+
+  --text-body: 0.875rem;
+  --text-body--line-height: 1.6;
+
+  --text-body-lg: 1rem;
+  --text-body-lg--line-height: 1.6;
+
+  /* section headings */
+  --text-title: 1.25rem;
+  --text-title--line-height: 1.3;
+  --text-title--letter-spacing: -0.01em;
+
+  /* fluid editorial headings — scale with viewport, no breakpoint classes needed */
+  --text-display-sm: clamp(1.75rem, 1.4rem + 1.5vw, 2.5rem);
+  --text-display-sm--line-height: 1.1;
+  --text-display-sm--letter-spacing: -0.02em;
+
+  --text-display: clamp(2.25rem, 1.5rem + 3vw, 4rem);
+  --text-display--line-height: 1.05;
+  --text-display--letter-spacing: -0.025em;
+
+  /* ── Shape ──────────────────────────────────────────────── */
+  /* square corners everywhere; only rounded-none / rounded-full remain (swatches, dots) */
+  --radius-*: initial;
+  /* depth comes from imagery and hairlines, never shadows */
+  --shadow-*: initial;
+  --inset-shadow-*: initial;
+  --drop-shadow-*: initial;
+
+  /* ── Layout ─────────────────────────────────────────────── */
+  --container-page: 120rem; /* full-bleed layouts, product grids */
+  --container-content: 80rem; /* product detail, checkout, account */
+  --container-prose: 40rem; /* long-form text */
+
+  --aspect-product: 4 / 5;
+  --aspect-editorial: 3 / 4;
+  --aspect-hero: 16 / 9;
+
+  /* ── Motion ─────────────────────────────────────────────── */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1); /* long, gentle settle — reveals, morphs */
+  --default-transition-duration: 200ms;
+  --default-transition-timing-function: var(--ease-standard);
+
+  /* Keyframes are defined at top level below so they always ship. */
+  --animate-rise: rise 0.9s var(--ease-out-soft) both;
+  --animate-hero-zoom: hero-zoom 2.2s var(--ease-out-soft) both;
+  --animate-pop: pop 0.45s var(--ease-out-soft);
+}
+
+/* Tokens that change with viewport (or come from next/font) must be inline. */
+@theme inline {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --spacing-gutter: var(--gutter); /* px-gutter, gap-gutter, … */
+  --spacing-section: var(--section); /* py-section, mt-section, … */
+  --spacing-header: var(--header-height); /* -mt-header pulls a hero under the header */
+}
+
+:root {
+  --gutter: 1rem; /* 16px  < 768 */
+  --section: 3rem; /* 48px */
+  --header-height: 3.5rem; /* 56px — must match SiteHeader's row heights */
+  /* Space the visible header occupies; 0 while it is tucked away on scroll-down. */
+  --header-offset: var(--header-height);
+}
+:root[data-header-hidden] {
+  --header-offset: 0px;
+}
+@media (width >= 48rem) {
+  :root {
+    --gutter: 1.5rem; /* 24px  ≥ 768 */
+    --section: 4rem; /* 64px */
+    --header-height: 4rem; /* 64px */
+  }
+}
+@media (width >= 64rem) {
+  :root {
+    --header-height: 6.75rem; /* 64px bar + 44px nav row */
+  }
+}
+@media (width >= 80rem) {
+  :root {
+    --gutter: 2.5rem; /* 40px  ≥ 1280 */
+    --section: 6rem; /* 96px */
+  }
+}
+
+/* ── Containers ───────────────────────────────────────────── */
+@utility container-page {
+  width: 100%;
+  max-width: var(--container-page);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+@utility container-content {
+  width: 100%;
+  max-width: calc(var(--container-content) + var(--gutter) * 2);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+@utility container-prose {
+  width: 100%;
+  max-width: calc(var(--container-prose) + var(--gutter) * 2);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+/*
+ * Transparent header over a hero. Applies while:
+ *   - a hero is on screen: <HeaderOverlay> sets html[data-header-overlay] while mounted and
+ *     clears it when Next hides the page (hidden pages stay in the DOM, so a plain
+ *     :has([data-header-overlay]) would match them). Before hydration the server-rendered
+ *     [data-header-overlay] element is used instead, so there is no flash.
+ *   - the header is not scrolled and not showing keyboard focus, and
+ *   - it is not hovered — on devices with a real pointer only; a tap "sticks" :hover on touch.
+ */
+@custom-variant header-overlay {
+  :is(:root[data-header-overlay], :root:not([data-header-ready]):has([data-header-overlay]))
+    &:not([data-scrolled], :has(:focus-visible)) {
+    @media (hover: hover) {
+      &:not(:hover) {
+        @slot;
+      }
+    }
+    @media (hover: none) {
+      @slot;
+    }
+  }
+}
+
+/* Fade + rise as an element scrolls into view. No-op without scroll-driven animations
+   or with reduced motion, so content is never left hidden. */
+@utility reveal {
+  @media (prefers-reduced-motion: no-preference) {
+    @supports (animation-timeline: view()) {
+      animation: rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 30%;
+    }
+  }
+}
+
+/* Horizontal scrollers (mobile carousels) — content still scrolls by touch/keyboard. */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ── Base ─────────────────────────────────────────────────── */
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-line);
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    /* In-page anchors glide; Next switches it off during route changes (data-scroll-behavior). */
+    scroll-behavior: smooth;
+    /* Lets height animate to/from `auto` (accordions) where supported. */
+    interpolate-size: allow-keywords;
+  }
+
+  /* Accordion open/close (Chromium 131+; elsewhere it simply snaps). */
+  details::details-content {
+    block-size: 0;
+    overflow-y: clip;
+    transition:
+      block-size 0.35s var(--ease-standard),
+      content-visibility 0.35s allow-discrete;
+  }
+  details[open]::details-content {
+    block-size: auto;
+  }
+
+  /* Images fade in once decoded instead of popping (SmoothImage sets data-loaded). */
+  [data-fade] {
+    opacity: 0;
+    transition: opacity 0.6s var(--ease-standard);
+  }
+  [data-fade][data-loaded] {
+    opacity: 1;
+  }
+
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+  }
+
+  :focus-visible {
+    outline: 1px solid var(--color-ink);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--color-ink);
+    color: var(--color-paper);
+  }
+
+  ::placeholder {
+    color: var(--color-subtle);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+    }
+    ::view-transition-group(*),
+    ::view-transition-old(*),
+    ::view-transition-new(*) {
+      animation: none !important;
+    }
+  }
+}
+
+/* ── Motion ───────────────────────────────────────────────── */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(1.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes hero-zoom {
+  from {
+    transform: scale(1.06);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@keyframes pop {
+  40% {
+    transform: scale(1.25);
+  }
+}
+
+/*
+ * View transitions (React <ViewTransition>).
+ * .morph — product image travels from its card into the product page.
+ * .slide-down / .slide-up — skeleton leaves quickly, real content arrives gently.
+ */
+::view-transition-group(.morph) {
+  animation-duration: 450ms;
+  animation-timing-function: var(--ease-out-soft);
+}
+::view-transition-image-pair(.morph) {
+  animation-name: vt-soften;
+}
+::view-transition-old(.slide-down) {
+  animation:
+    150ms ease-out both vt-fade reverse,
+    150ms ease-out both vt-slide reverse;
+}
+::view-transition-new(.slide-up) {
+  animation:
+    220ms ease-in 150ms both vt-fade,
+    400ms var(--ease-out-soft) both vt-slide;
+}
+@keyframes vt-soften {
+  30% {
+    filter: blur(3px);
+  }
+}
+@keyframes vt-fade {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+@keyframes vt-slide {
+  from {
+    transform: translateY(12px);
+  }
+  to {
+    transform: none;
+  }
+}
