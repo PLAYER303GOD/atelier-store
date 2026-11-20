@@ -1,4 +1,4 @@
-# Atelier Store
+# Atelier Store -1
 
 Next.js 16 (App Router) · TypeScript · Tailwind CSS v4 · Better Auth · Drizzle ORM · Neon Postgres
 
