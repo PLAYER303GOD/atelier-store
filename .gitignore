@@ -40,3 +40,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Better Auth skills: real files live in .agents/skills (pinned by skills-lock.json).
+# These are machine-local symlinks for Claude Code; recreate with `npx skills add better-auth/skills`.
+/.claude/skills/better-auth-best-practices
+/.claude/skills/better-auth-security-best-practices
+/.claude/skills/create-auth
+/.claude/skills/email-and-password-best-practices
+/.claude/skills/organization-best-practices
+/.claude/skills/two-factor-authentication-best-practices
