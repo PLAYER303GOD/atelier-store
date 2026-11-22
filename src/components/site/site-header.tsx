@@ -1,6 +1,7 @@
 import Link from "next/link";
 
-import { BagIcon, SearchIcon, UserIcon } from "@/components/icons";
+import { BagIcon, SearchIcon } from "@/components/icons";
+import { AccountLink } from "@/components/site/account-link";
 import { HeaderNav } from "@/components/site/header-nav";
 import { HeaderShell } from "@/components/site/header-shell";
 import { MobileMenu } from "@/components/site/mobile-menu";
@@ -53,9 +54,7 @@ export function SiteHeader() {
 
           <div className="-mr-3 flex items-center justify-end">
             <div className="hidden lg:block">
-              <Link href="/account" className={iconLink} aria-label="Account">
-                <UserIcon />
-              </Link>
+              <AccountLink />
             </div>
             <SavedLink />
             <Link href="/bag" className={iconLink} aria-label="Shopping bag">

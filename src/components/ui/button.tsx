@@ -3,7 +3,7 @@ import type { ComponentProps } from "react";
 import { cn } from "@/lib/cn";
 
 type Variant = "primary" | "secondary" | "ghost" | "inverse";
-type Size = "md" | "sm" | "icon";
+type Size = "md" | "sm" | "icon" | "icon-label";
 
 const base =
   "inline-flex shrink-0 items-center justify-center gap-2 rounded-none border text-label font-medium uppercase whitespace-nowrap transition-[color,background-color,border-color,scale] select-none active:scale-[0.98] disabled:pointer-events-none aria-disabled:pointer-events-none";
@@ -25,6 +25,7 @@ const sizes: Record<Size, string> = {
   md: "h-12 px-8", // 48px — primary CTAs, add to bag, checkout
   sm: "h-10 px-5", // 40px — secondary actions, filters
   icon: "size-11 [&_svg]:size-5", // 44px square touch target — header icons, close
+  "icon-label": "h-11 px-3 [&_svg]:size-5", // icon + short label at the same 44px height (header account + name)
 };
 
 export type ButtonStyleProps = {
