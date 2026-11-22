@@ -327,6 +327,41 @@
     220ms ease-in 150ms both vt-fade,
     400ms var(--ease-out-soft) both vt-slide;
 }
+/* .auth-form / .auth-visual — sign-in ⇄ sign-up. The form column leaves and arrives with the
+   same timings as .slide-down / .slide-up (old out fast, new in gently, height eases between
+   the two forms); the photo panel crossfades slowly beside it. */
+::view-transition-group(.auth-form) {
+  animation-duration: 400ms;
+  animation-timing-function: var(--ease-out-soft);
+}
+::view-transition-old(.auth-form) {
+  animation:
+    150ms ease-out both vt-fade reverse,
+    150ms ease-out both vt-slide reverse;
+}
+::view-transition-new(.auth-form) {
+  animation:
+    220ms ease-in 150ms both vt-fade,
+    400ms var(--ease-out-soft) both vt-slide;
+}
+::view-transition-group(.auth-visual) {
+  animation-duration: 700ms;
+  animation-timing-function: var(--ease-out-soft);
+}
+::view-transition-old(.auth-visual),
+::view-transition-new(.auth-visual) {
+  animation-duration: 700ms;
+  animation-timing-function: var(--ease-standard);
+}
+/* The panel copy hands over instead of crossfading: old text out fast, new text rises in after. */
+::view-transition-old(.auth-copy) {
+  animation: 180ms ease-out both vt-fade reverse;
+}
+::view-transition-new(.auth-copy) {
+  animation:
+    320ms ease-in 260ms both vt-fade,
+    600ms var(--ease-out-soft) 260ms both vt-slide;
+}
 @keyframes vt-soften {
   30% {
     filter: blur(3px);

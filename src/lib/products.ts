@@ -205,6 +205,40 @@ export async function getCollectionSlugs(): Promise<string[]> {
   return rows.map((row) => row.slug);
 }
 
+export type StockOverview = {
+  products: number;
+  categories: number;
+  collections: number;
+  outOfStock: number;
+  /** Out-of-stock and low-stock (≤ 3) products, lowest stock first. */
+  alerts: Pick<Product, "slug" | "name" | "category" | "stock">[];
+};
+
+/** Catalogue health for /admin. Not user-specific, so it caches like any catalogue read. */
+export async function getStockOverview(): Promise<StockOverview> {
+  "use cache";
+  cacheProducts();
+  const [rows, [{ categoryCount }], [{ collectionCount }]] = await Promise.all([
+    selectProducts().orderBy(asc(sql`coalesce(${stocks.quantity}, 0)`), asc(products.name)),
+    db.select({ categoryCount: sql<number>`count(*)`.mapWith(Number) }).from(categories),
+    db.select({ collectionCount: sql<number>`count(*)`.mapWith(Number) }).from(collections),
+  ]);
+  return {
+    products: rows.length,
+    categories: categoryCount,
+    collections: collectionCount,
+    outOfStock: rows.filter((row) => row.stock <= 0).length,
+    alerts: rows
+      .filter((row) => row.stock <= 3)
+      .map(({ slug, name, categorySlug, categoryName, stock }) => ({
+        slug,
+        name,
+        stock,
+        category: { slug: categorySlug, name: categoryName },
+      })),
+  };
+}
+
 export async function getProductSlugs(): Promise<string[]> {
   "use cache";
   cacheProducts();
