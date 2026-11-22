@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { check, index, integer, jsonb, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 
-// Catalogue tables: categories 1──< products 1──1 stocks.
+// Catalogue tables: categories 1──< products 1──1 stocks, and products >──< collections.
 // Variants, carts and orders are deliberately out of scope for now.
 
 export type ProductImage = { src: string; alt: string };
@@ -40,6 +40,37 @@ export const products = pgTable(
   (t) => [
     index("products_category_id_idx").on(t.categoryId),
     check("products_price_cents_non_negative", sql`${t.priceCents} >= 0`),
+  ],
+);
+
+/**
+ * Curated, overlapping groupings (Women, Men, Gifts…). Unlike a category, a product can sit
+ * in any number of collections, so membership lives in product_collections.
+ */
+export const collections = pgTable("collections", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  /** One or two sentences shown under the collection page heading. */
+  description: text("description").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Membership rows are owned by both sides, so deleting either removes them. */
+export const productCollections = pgTable(
+  "product_collections",
+  {
+    productId: integer("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    collectionId: integer("collection_id")
+      .notNull()
+      .references(() => collections.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.collectionId, t.productId] }),
+    // The PK leads with collection_id (listing a collection); this serves product → collections.
+    index("product_collections_product_id_idx").on(t.productId),
   ],
 );
 

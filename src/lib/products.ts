@@ -6,7 +6,7 @@ import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { cacheLife, cacheTag } from "next/cache";
 
 import { db } from "@/db";
-import { categories, products, stocks } from "@/db/schema";
+import { categories, collections, productCollections, products, stocks } from "@/db/schema";
 import { MAX_SEARCH_LENGTH, type Product } from "@/lib/catalog";
 
 function selectProducts() {
@@ -170,6 +170,38 @@ export async function getCategorySlugs(): Promise<string[]> {
   "use cache";
   cacheProducts();
   const rows = await db.select({ slug: categories.slug }).from(categories);
+  return rows.map((row) => row.slug);
+}
+
+export type Collection = { slug: string; name: string; description: string };
+
+export async function getCollection(slug: string): Promise<Collection | undefined> {
+  "use cache";
+  cacheProducts();
+  const [row] = await db
+    .select({ slug: collections.slug, name: collections.name, description: collections.description })
+    .from(collections)
+    .where(eq(collections.slug, slug))
+    .limit(1);
+  return row;
+}
+
+/** A collection's products, newest first. */
+export async function getCollectionProducts(collectionSlug: string): Promise<Product[]> {
+  "use cache";
+  cacheProducts();
+  const rows = await selectProducts()
+    .innerJoin(productCollections, eq(productCollections.productId, products.id))
+    .innerJoin(collections, eq(collections.id, productCollections.collectionId))
+    .where(eq(collections.slug, collectionSlug))
+    .orderBy(desc(products.createdAt), asc(products.id));
+  return rows.map(toProduct);
+}
+
+export async function getCollectionSlugs(): Promise<string[]> {
+  "use cache";
+  cacheProducts();
+  const rows = await db.select({ slug: collections.slug }).from(collections);
   return rows.map((row) => row.slug);
 }
 

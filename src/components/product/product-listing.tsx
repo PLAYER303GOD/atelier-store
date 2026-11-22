@@ -12,6 +12,8 @@ type ProductListingProps = {
   crumb: string;
   eyebrow: string;
   title: string;
+  /** Optional intro under the heading (collections). */
+  description?: string;
   products: Product[];
   /** Appended to the count, e.g. "newest first". */
   note?: string;
@@ -22,7 +24,7 @@ type ProductListingProps = {
 const pageClass = "container-page pt-4 pb-section md:pt-6";
 
 /** Listing page body: breadcrumbs, heading, count and a product grid (or an empty state). */
-export function ProductListing({ crumb, eyebrow, title, products, note, empty }: ProductListingProps) {
+export function ProductListing({ crumb, eyebrow, title, description, products, note, empty }: ProductListingProps) {
   const count = `${products.length} ${products.length === 1 ? "piece" : "pieces"}`;
 
   return (
@@ -30,6 +32,7 @@ export function ProductListing({ crumb, eyebrow, title, products, note, empty }:
       <Breadcrumbs className="mb-6 md:mb-10" items={[{ label: "Home", href: "/" }, { label: crumb }]} />
       <p className="mb-2 text-caption text-muted uppercase">{eyebrow}</p>
       <h1 className="mb-2 text-display-sm">{title}</h1>
+      {description && <p className="mt-3 mb-4 max-w-xl text-body text-muted">{description}</p>}
 
       {products.length === 0 ? (
         <div className="mt-8 flex flex-col items-center border-t py-section text-center md:mt-10">

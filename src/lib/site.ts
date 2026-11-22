@@ -6,12 +6,12 @@ export const announcement = "Complimentary shipping and returns";
 
 export const primaryNav: NavLink[] = [
   { label: "New In", href: "/new-in" },
-  { label: "Women", href: "/women" },
-  { label: "Men", href: "/men" },
+  { label: "Women", href: "/collections/women" },
+  { label: "Men", href: "/collections/men" },
   { label: "Bags", href: "/bags" },
   { label: "Shoes", href: "/shoes" },
   { label: "Jewelry", href: "/jewelry" },
-  { label: "Gifts", href: "/gifts" },
+  { label: "Gifts", href: "/collections/gifts" },
 ];
 
 export const secondaryNav: NavLink[] = [
@@ -50,10 +50,10 @@ export const footerNav: { title: string; links: NavLink[] }[] = [
   {
     title: "Shop",
     links: [
-      { label: "Women", href: "/women" },
-      { label: "Men", href: "/men" },
+      { label: "Women", href: "/collections/women" },
+      { label: "Men", href: "/collections/men" },
       { label: "Bags", href: "/bags" },
-      { label: "Gifts", href: "/gifts" },
+      { label: "Gifts", href: "/collections/gifts" },
     ],
   },
 ];

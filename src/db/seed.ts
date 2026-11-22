@@ -1,11 +1,11 @@
 // Loads the sample catalogue. Safe to re-run: every insert upserts on its natural key.
 // Run with `pnpm db:seed` (reads DATABASE_URL from .env.local).
 
-import { sql } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 
 import { db } from "./index";
-import { categories, products, stocks } from "./schema";
-import { seedCategories, seedProducts } from "./seed-data";
+import { categories, collections, productCollections, products, stocks } from "./schema";
+import { seedCategories, seedCollections, seedProducts } from "./seed-data";
 
 const excluded = (column: string) => sql.raw(`excluded.${column}`);
 
@@ -61,8 +61,31 @@ async function main() {
       set: { quantity: excluded("quantity"), updatedAt: sql`now()` },
     });
 
+  // Collections: upsert, then replace their membership so it always matches seed-data.
+  // (The Neon HTTP driver has no transactions; a failure here leaves memberships to re-seed.)
+  const collectionRows = await db
+    .insert(collections)
+    .values(seedCollections.map(({ slug, name, description }) => ({ slug, name, description })))
+    .onConflictDoUpdate({
+      target: collections.slug,
+      set: { name: excluded("name"), description: excluded("description") },
+    })
+    .returning({ id: collections.id, slug: collections.slug });
+  const collectionId = new Map(collectionRows.map((row) => [row.slug, row.id]));
+
+  const memberships = seedCollections.flatMap((collection) =>
+    collection.products.map((slug) => {
+      const id = productId.get(slug);
+      if (id === undefined) throw new Error(`Collection "${collection.slug}" lists unknown product "${slug}"`);
+      return { collectionId: collectionId.get(collection.slug)!, productId: id };
+    }),
+  );
+  await db.delete(productCollections).where(inArray(productCollections.collectionId, [...collectionId.values()]));
+  await db.insert(productCollections).values(memberships);
+
   console.log(
-    `Seeded ${categoryRows.length} categories, ${productRows.length} products, ${seedProducts.length} stock rows.`,
+    `Seeded ${categoryRows.length} categories, ${productRows.length} products, ${seedProducts.length} stock rows, ` +
+      `${collectionRows.length} collections, ${memberships.length} collection memberships.`,
   );
 }
 
