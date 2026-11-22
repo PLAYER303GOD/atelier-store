@@ -60,6 +60,18 @@ export const seedCollections: { slug: string; name: string; description: string;
     ],
   },
   {
+    // The homepage hero campaign ("The Quiet Season") links here.
+    slug: "autumn-winter",
+    name: "Autumn–Winter 2026",
+    description: "The Quiet Season: considered layers, softened tailoring and pieces made to be worn for years.",
+    products: [
+      "fringed-knit-poncho", "leather-biker-jacket", "hooded-field-jacket", "chunky-rib-sweater",
+      "cable-knit-jumper", "belted-wrap-coat", "check-wool-blazer", "leather-lace-up-boots",
+      "tangerine-crew-sweater", "striped-fringed-scarf", "satin-bomber-jacket", "hooded-duffle-coat",
+      "sherpa-collar-denim-jacket", "navy-wool-suit", "windowpane-check-suit", "leather-chukka-boots",
+    ],
+  },
+  {
     slug: "bags-accessories",
     name: "Bags & Accessories",
     description: "Structured leather, made to last, alongside the eyewear and jewelry that complete a look.",

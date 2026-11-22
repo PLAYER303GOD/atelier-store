@@ -28,7 +28,7 @@ export type Collection = {
 };
 
 /** Unsplash photo URL, capped at 2400px so the optimiser never fetches full-size originals. */
-function unsplash(id: string) {
+export function unsplash(id: string) {
   return `https://images.unsplash.com/photo-${id}?auto=format&fit=max&w=2400&q=80`;
 }
 
