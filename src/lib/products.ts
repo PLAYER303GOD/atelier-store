@@ -2,12 +2,12 @@
 // Each read is cached ("use cache") so pages stay in the static shell; the `products` tag lets
 // future writes invalidate them with updateTag("products"). Stock may be up to ~1 minute stale.
 
-import { asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { cacheLife, cacheTag } from "next/cache";
 
 import { db } from "@/db";
 import { categories, products, stocks } from "@/db/schema";
-import type { Product } from "@/lib/catalog";
+import { MAX_SEARCH_LENGTH, type Product } from "@/lib/catalog";
 
 function selectProducts() {
   return db
@@ -104,6 +104,43 @@ export async function getCategoryProducts(categorySlug: string): Promise<Product
   const rows = await selectProducts()
     .where(eq(categories.slug, categorySlug))
     .orderBy(desc(products.createdAt), asc(products.id));
+  return rows.map(toProduct);
+}
+
+/** Lower-case words, at most five; a trailing plural "s" is dropped so "jackets" finds "jacket". */
+function searchTerms(query: string) {
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 5)
+    .map((term) => (term.length > 3 && term.endsWith("s") && !term.endsWith("ss") ? term.slice(0, -1) : term));
+}
+
+/** `%term%` with LIKE wildcards in the term itself matched literally. */
+const likePattern = (term: string) => `%${term.replace(/[\\%_]/g, "\\$&")}%`;
+
+/**
+ * Products matching every word of the query in their name, colour, category, description or
+ * details. Name, colour and category matches rank first, then newest. Fine for a small catalogue;
+ * move to Postgres full-text search (tsvector + GIN index) once it grows.
+ */
+export async function searchProducts(query: string): Promise<Product[]> {
+  "use cache";
+  cacheProducts();
+  const terms = searchTerms(query.slice(0, MAX_SEARCH_LENGTH));
+  if (terms.length === 0) return [];
+
+  const haystack = sql`concat_ws(' ', ${products.name}, ${products.colour}, ${categories.name}, ${products.description}, array_to_string(${products.details}, ' '))`;
+  const strong = sql`concat_ws(' ', ${products.name}, ${products.colour}, ${categories.name})`;
+  const rows = await selectProducts()
+    .where(and(...terms.map((term) => sql`${haystack} ilike ${likePattern(term)}`)))
+    .orderBy(
+      desc(sql.join(terms.map((term) => sql`(${strong} ilike ${likePattern(term)})::int`), sql` + `)),
+      desc(products.createdAt),
+      asc(products.id),
+    )
+    .limit(48);
   return rows.map(toProduct);
 }
 

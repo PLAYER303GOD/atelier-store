@@ -106,3 +106,12 @@ const usd = new Intl.NumberFormat("en-US", {
 export function formatPrice(cents: number) {
   return usd.format(cents / 100);
 }
+
+/** Longest search query the site accepts (input maxLength, page and API all cap to it). */
+export const MAX_SEARCH_LENGTH = 100;
+
+/** Trimmed, single-spaced and capped: the one shape a search query takes everywhere. */
+export function normalizeSearchQuery(raw: string | string[] | null | undefined) {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return (value ?? "").trim().replace(/\s+/g, " ").slice(0, MAX_SEARCH_LENGTH);
+}

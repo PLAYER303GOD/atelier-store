@@ -8,17 +8,28 @@ import type { CategorySummary } from "@/lib/products";
 
 /**
  * "Explore other categories" row at the foot of a category page. Same tile treatment as the
- * homepage's featured collections: a swipeable row on mobile, a grid from 768px.
+ * homepage's featured collections: a swipeable row on mobile, a 3-column grid from 768px and
+ * one row of however many categories there are from 1280px.
  */
-export function OtherCategories({ categories }: { categories: CategorySummary[] }) {
+export function OtherCategories({
+  categories,
+  eyebrow = "Keep exploring",
+  title = "Other categories",
+  className = "container-page pb-section",
+}: {
+  categories: CategorySummary[];
+  eyebrow?: string;
+  title?: string;
+  className?: string;
+}) {
   if (categories.length === 0) return null;
 
   return (
-    <section aria-labelledby="other-categories-title" className="container-page pb-section">
-      <SectionHeader id="other-categories-title" eyebrow="Keep exploring" title="Other categories" />
+    <section aria-labelledby="other-categories-title" className={className}>
+      <SectionHeader id="other-categories-title" eyebrow={eyebrow} title={title} />
       <ul
         role="list"
-        className="reveal no-scrollbar -mx-gutter grid snap-x snap-mandatory auto-cols-[45%] grid-flow-col gap-x-0.5 overflow-x-auto scroll-px-gutter px-gutter sm:auto-cols-[30%] md:mx-0 md:grid-flow-row md:grid-cols-3 md:gap-y-8 md:overflow-visible md:px-0 xl:grid-cols-6"
+        className="reveal no-scrollbar -mx-gutter grid snap-x snap-mandatory auto-cols-[45%] grid-flow-col gap-x-0.5 overflow-x-auto scroll-px-gutter px-gutter sm:auto-cols-[30%] md:mx-0 md:grid-flow-row md:grid-cols-3 md:gap-y-8 md:overflow-visible md:px-0 xl:auto-cols-fr xl:grid-flow-col"
       >
         {categories.map((category) => (
           <li key={category.slug} className="snap-start">
