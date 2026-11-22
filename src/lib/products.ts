@@ -53,7 +53,7 @@ export async function getProduct(slug: string): Promise<Product | undefined> {
   return row && toProduct(row);
 }
 
-/** Homepage "New arrivals" row, newest first. */
+/** Newest products first: the homepage row and the /new-in page. */
 export async function getNewArrivals(limit = 8): Promise<Product[]> {
   "use cache";
   cacheProducts();
@@ -84,6 +84,56 @@ export async function getProductsBySlugs(slugs: string[]): Promise<Product[]> {
   const rows = await selectProducts().where(inArray(products.slug, slugs));
   const bySlug = new Map(rows.map((row) => [row.slug, toProduct(row)]));
   return slugs.flatMap((slug) => bySlug.get(slug) ?? []);
+}
+
+export async function getCategory(slug: string): Promise<Product["category"] | undefined> {
+  "use cache";
+  cacheProducts();
+  const [row] = await db
+    .select({ slug: categories.slug, name: categories.name })
+    .from(categories)
+    .where(eq(categories.slug, slug))
+    .limit(1);
+  return row;
+}
+
+/** One category's products, newest first. */
+export async function getCategoryProducts(categorySlug: string): Promise<Product[]> {
+  "use cache";
+  cacheProducts();
+  const rows = await selectProducts()
+    .where(eq(categories.slug, categorySlug))
+    .orderBy(desc(products.createdAt), asc(products.id));
+  return rows.map(toProduct);
+}
+
+export type CategorySummary = Product["category"] & { cover: Product["images"][number]; count: number };
+
+/** Categories that have products, A–Z, each with its newest product's first image as a cover. */
+export async function getCategorySummaries(): Promise<CategorySummary[]> {
+  "use cache";
+  cacheProducts();
+  const rows = await db
+    .selectDistinctOn([categories.id], {
+      slug: categories.slug,
+      name: categories.name,
+      images: products.images,
+      // Window functions run before DISTINCT ON, so this counts the whole category.
+      count: sql<number>`count(*) over (partition by ${categories.id})`.mapWith(Number),
+    })
+    .from(categories)
+    .innerJoin(products, eq(products.categoryId, categories.id))
+    .orderBy(categories.id, desc(products.createdAt), asc(products.id));
+  return rows
+    .map(({ images, ...row }) => ({ ...row, cover: images[0] }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function getCategorySlugs(): Promise<string[]> {
+  "use cache";
+  cacheProducts();
+  const rows = await db.select({ slug: categories.slug }).from(categories);
+  return rows.map((row) => row.slug);
 }
 
 export async function getProductSlugs(): Promise<string[]> {
