@@ -1,12 +1,12 @@
 "use client";
 
 import Form from "next/form";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 
-import { SearchIcon } from "@/components/icons";
+import { CloseIcon, SearchIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
+import { SmoothImage } from "@/components/ui/smooth-image";
 import { cn } from "@/lib/cn";
 import { formatPrice, MAX_SEARCH_LENGTH, normalizeSearchQuery } from "@/lib/catalog";
 import type { SearchSuggestion } from "@/app/api/search/suggestions/route";
@@ -26,6 +26,7 @@ export function SearchForm({ query = "" }: { query?: string }) {
   const id = useId();
   const listId = `${id}-list`;
   const formRef = useRef<HTMLFormElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const [value, setValue] = useState(query);
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
@@ -33,6 +34,8 @@ export function SearchForm({ query = "" }: { query?: string }) {
   const [answered, setAnswered] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
+  // A navigation is on its way. The page remounts this form (key) once it lands, which resets it.
+  const [pending, setPending] = useState(false);
 
   const typed = normalizeSearchQuery(value);
   // Options: one per product, then "See all results" when there is anything to search.
@@ -68,8 +71,10 @@ export function SearchForm({ query = "" }: { query?: string }) {
 
   const choose = (index: number) => {
     close();
-    if (index < fresh.length) router.push(`/products/${fresh[index].slug}`);
-    else formRef.current?.requestSubmit();
+    if (index < fresh.length) {
+      setPending(true);
+      router.push(`/products/${fresh[index].slug}`);
+    } else formRef.current?.requestSubmit();
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -102,13 +107,19 @@ export function SearchForm({ query = "" }: { query?: string }) {
         ref={formRef}
         action="/search"
         role="search"
-        className="flex items-center border-b border-ink"
-        onSubmit={close}
+        aria-busy={pending}
+        className="relative flex items-center border-b border-ink"
+        onSubmit={() => {
+          close();
+          // Re-submitting the query already shown doesn't navigate, so nothing would clear it.
+          if (typed !== query) setPending(true);
+        }}
       >
         <label htmlFor={`${id}-input`} className="sr-only">
           Search products
         </label>
         <input
+          ref={inputRef}
           id={`${id}-input`}
           name="q"
           type="search"
@@ -132,9 +143,31 @@ export function SearchForm({ query = "" }: { query?: string }) {
           autoFocus={!query}
           className="h-14 min-w-0 flex-1 bg-transparent text-title outline-none placeholder:text-subtle md:h-16 md:text-display-sm [&::-webkit-search-cancel-button]:hidden"
         />
+        {value && (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Clear search"
+            className="animate-pop text-muted hover:text-ink"
+            onClick={() => {
+              setValue("");
+              close();
+              inputRef.current?.focus();
+            }}
+          >
+            <CloseIcon />
+          </Button>
+        )}
         <Button type="submit" variant="ghost" size="icon" aria-label="Submit search" className="-mr-3">
           <SearchIcon />
         </Button>
+
+        {/* Thin sliding bar on the underline while the next page loads. */}
+        {pending && (
+          <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 -bottom-px h-0.5 overflow-hidden">
+            <span className="block h-full w-1/4 animate-progress bg-ink" />
+          </span>
+        )}
       </Form>
 
       {/* Polite count for screen readers; the list itself isn't announced while typing. */}
@@ -147,7 +180,7 @@ export function SearchForm({ query = "" }: { query?: string }) {
         role="listbox"
         aria-label="Search suggestions"
         hidden={!expanded}
-        className="absolute inset-x-0 top-full z-30 max-h-[min(70vh,32rem)] overflow-y-auto border border-t-0 border-line bg-paper py-2 shadow-[0_12px_24px_-12px_rgb(0_0_0/0.15)]"
+        className="absolute inset-x-0 top-full z-30 max-h-[min(70vh,32rem)] transition-[opacity,translate] duration-300 ease-out-soft starting:-translate-y-1 starting:opacity-0 overflow-y-auto border border-t-0 border-line bg-paper py-2 shadow-[0_12px_24px_-12px_rgb(0_0_0/0.15)]"
       >
         {fresh.map((suggestion, index) => (
           <li
@@ -160,12 +193,12 @@ export function SearchForm({ query = "" }: { query?: string }) {
             onMouseEnter={() => setActive(index)}
             onClick={() => choose(index)}
             className={cn(
-              "flex cursor-pointer items-center gap-4 px-4 py-2 md:px-5",
+              "flex cursor-pointer items-center gap-4 px-4 py-2 transition-colors duration-150 md:px-5",
               active === index && "bg-surface",
             )}
           >
             <span className="relative size-14 shrink-0 overflow-hidden bg-surface">
-              <Image src={suggestion.image.src} alt="" fill sizes="56px" className="object-cover" />
+              <SmoothImage src={suggestion.image.src} alt="" fill sizes="56px" className="object-cover" />
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-caption text-muted uppercase">{suggestion.category}</span>
@@ -187,12 +220,14 @@ export function SearchForm({ query = "" }: { query?: string }) {
           onMouseEnter={() => setActive(fresh.length)}
           onClick={() => choose(fresh.length)}
           className={cn(
-            "mt-1 flex cursor-pointer items-center justify-between gap-4 border-t border-line px-4 pt-3 pb-2 text-label font-medium uppercase md:px-5",
+            "mt-1 flex cursor-pointer items-center justify-between gap-4 border-t border-line px-4 pt-3 pb-2 text-label font-medium uppercase transition-colors duration-150 md:px-5",
             active === fresh.length && "bg-surface",
           )}
         >
           <span className="truncate">See all results for “{typed}”</span>
-          <span aria-hidden="true">→</span>
+          <span aria-hidden="true" className={cn("transition-transform duration-300 ease-out-soft", active === fresh.length && "translate-x-1")}>
+            →
+          </span>
         </li>
       </ul>
     </div>

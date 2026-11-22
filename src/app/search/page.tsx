@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Suspense } from "react";
+import { Suspense, ViewTransition } from "react";
 
 import { OtherCategories } from "@/components/product/other-categories";
 import { ProductCard } from "@/components/product/product-card";
@@ -26,8 +26,17 @@ export default function SearchPage({ searchParams }: PageProps<"/search">) {
     <div className="container-page pt-4 pb-section md:pt-6">
       <Breadcrumbs className="mb-6 md:mb-10" items={[{ label: "Home", href: "/" }, { label: "Search" }]} />
       <h1 className="sr-only">Search</h1>
-      <Suspense fallback={<SearchSkeleton />}>
-        <SearchContent searchParams={searchParams} />
+      {/* Skeleton leaves quickly, content arrives gently (slide-down / slide-up in globals.css). */}
+      <Suspense
+        fallback={
+          <ViewTransition exit="slide-down" default="none">
+            <SearchSkeleton />
+          </ViewTransition>
+        }
+      >
+        <ViewTransition enter="slide-up" default="none">
+          <SearchContent searchParams={searchParams} />
+        </ViewTransition>
       </Suspense>
     </div>
   );

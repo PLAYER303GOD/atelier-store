@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, ViewTransition } from "react";
 
 import { OtherCategories } from "@/components/product/other-categories";
 import { ProductListing, ProductListingSkeleton } from "@/components/product/product-listing";
@@ -23,10 +23,19 @@ export async function generateMetadata({ params }: PageProps<"/[category]">): Pr
 }
 
 // `params` is URL data: resolve it inside <Suspense> (see src/app/products/[slug]/page.tsx).
+// Skeleton leaves quickly, content arrives gently — the same slide-down / slide-up pair.
 export default function CategoryPage({ params }: PageProps<"/[category]">) {
   return (
-    <Suspense fallback={<ProductListingSkeleton />}>
-      <CategoryContent params={params} />
+    <Suspense
+      fallback={
+        <ViewTransition exit="slide-down" default="none">
+          <ProductListingSkeleton />
+        </ViewTransition>
+      }
+    >
+      <ViewTransition enter="slide-up" default="none">
+        <CategoryContent params={params} />
+      </ViewTransition>
     </Suspense>
   );
 }
