@@ -10,7 +10,7 @@
 // its stock in one transaction → create the Checkout Session from the order snapshot → link it →
 // redirect to Stripe. The bag itself is left untouched until payment is confirmed.
 
-import type Stripe from "stripe";
+import Stripe from "stripe";
 
 import { refresh, updateTag } from "next/cache";
 import { redirect } from "next/navigation";
@@ -201,12 +201,18 @@ async function closeCheckout(order: { id: number; stripeCheckoutSessionId: strin
   try {
     await stripe.checkout.sessions.expire(order.stripeCheckoutSessionId);
     return releaseOrder(order.id, "canceled");
-  } catch {
+  } catch (error) {
+    // Unknown to this Stripe account (e.g. created with a key for another account or sandbox):
+    // no payment for it can ever reach our webhook, so it must not hold stock or block checkout.
+    if (isMissingResource(error)) return releaseOrder(order.id, "canceled");
     const session = await stripe.checkout.sessions.retrieve(order.stripeCheckoutSessionId);
     if (session.status === "expired") return releaseOrder(order.id, "expired");
     return false; // complete: paid or paying
   }
 }
+
+const isMissingResource = (error: unknown) =>
+  error instanceof Stripe.errors.StripeInvalidRequestError && error.code === "resource_missing";
 
 async function expireQuietly(stripe: Stripe, sessionId: string) {
   try {
