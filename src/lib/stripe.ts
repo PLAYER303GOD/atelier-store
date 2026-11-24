@@ -18,6 +18,13 @@ export function getStripe(): Stripe {
   return client;
 }
 
+/**
+ * Stripe doesn't know this object in our account, e.g. a session created with a key for another
+ * account or sandbox. Nothing about it can ever reach our webhook.
+ */
+export const isMissingResource = (error: unknown) =>
+  error instanceof Stripe.errors.StripeInvalidRequestError && error.code === "resource_missing";
+
 /** Origin for Stripe's success / cancel URLs. Never derived from request headers. */
 export function appUrl(): string {
   const url = process.env.APP_URL ?? process.env.BETTER_AUTH_URL;

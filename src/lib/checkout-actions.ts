@@ -10,7 +10,7 @@
 // its stock in one transaction → create the Checkout Session from the order snapshot → link it →
 // redirect to Stripe. The bag itself is left untouched until payment is confirmed.
 
-import Stripe from "stripe";
+import type Stripe from "stripe";
 
 import { refresh, updateTag } from "next/cache";
 import { redirect } from "next/navigation";
@@ -28,7 +28,7 @@ import {
   releaseOrder,
 } from "@/lib/order-store";
 import { getSignedInUser, requireUser } from "@/lib/session";
-import { appUrl, getStripe } from "@/lib/stripe";
+import { appUrl, getStripe, isMissingResource } from "@/lib/stripe";
 
 export type CheckoutResult = { ok: false; error: string };
 
@@ -210,9 +210,6 @@ async function closeCheckout(order: { id: number; stripeCheckoutSessionId: strin
     return false; // complete: paid or paying
   }
 }
-
-const isMissingResource = (error: unknown) =>
-  error instanceof Stripe.errors.StripeInvalidRequestError && error.code === "resource_missing";
 
 async function expireQuietly(stripe: Stripe, sessionId: string) {
   try {

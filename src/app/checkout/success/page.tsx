@@ -12,7 +12,7 @@ import { TextLink } from "@/components/ui/text-link";
 import { formatPrice } from "@/lib/catalog";
 import { findOrderBySession, type OrderSummary } from "@/lib/order-store";
 import { requireUser } from "@/lib/session";
-import { getStripe } from "@/lib/stripe";
+import { getStripe, isMissingResource } from "@/lib/stripe";
 
 export const metadata: Metadata = { title: "Your order — Atelier Store", robots: { index: false } };
 
@@ -163,6 +163,12 @@ async function viewFor(order: OrderSummary, sessionId: string, email: string): P
       Return to bag
     </Link>
   );
+  const closed: View = {
+    eyebrow: "Checkout closed",
+    title: "This checkout is no longer open",
+    intro: "No charge was made. Your bag is saved, so you can check out again whenever you're ready.",
+    actions: backToBag,
+  };
 
   switch (order.status) {
     case "paid":
@@ -188,12 +194,7 @@ async function viewFor(order: OrderSummary, sessionId: string, email: string): P
       };
     case "expired":
     case "canceled":
-      return {
-        eyebrow: "Checkout closed",
-        title: "This checkout is no longer open",
-        intro: "No charge was made. Your bag is saved, so you can check out again whenever you're ready.",
-        actions: backToBag,
-      };
+      return closed;
     case "pending":
       break;
   }
@@ -203,6 +204,12 @@ async function viewFor(order: OrderSummary, sessionId: string, email: string): P
   try {
     session = await getStripe().checkout.sessions.retrieve(sessionId);
   } catch (error) {
+    if (isMissingResource(error)) {
+      // Not in our Stripe account (made with another account's key): no payment for it can reach
+      // us. The order is released the next time this customer starts checkout.
+      console.warn(`Checkout Session for ${order.reference} is unknown to this Stripe account`);
+      return closed;
+    }
     console.error("Retrieving the Checkout Session for the success page failed", error);
   }
 
