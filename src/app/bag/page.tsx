@@ -2,15 +2,20 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense, ViewTransition } from "react";
 
+import { BagFeedback } from "@/components/cart/bag-feedback";
 import { BagLineControls } from "@/components/cart/bag-line-controls";
+import { ProductCard } from "@/components/product/product-card";
 import { StockStatus } from "@/components/product/stock-status";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { buttonStyles } from "@/components/ui/button";
 import { MediaFrame } from "@/components/ui/media-frame";
+import { ProductGrid } from "@/components/ui/product-grid";
+import { SectionHeader } from "@/components/ui/section-header";
 import { SmoothImage } from "@/components/ui/smooth-image";
 import { TextLink } from "@/components/ui/text-link";
 import { type BagLine, getBag } from "@/lib/cart";
 import { formatPrice } from "@/lib/catalog";
+import { getNewArrivals } from "@/lib/products";
 
 export const metadata: Metadata = { title: "Shopping bag — Atelier Store", robots: { index: false } };
 
@@ -32,7 +37,9 @@ export default function BagPage() {
         }
       >
         <ViewTransition enter="slide-up" default="none">
-          <BagContent />
+          <BagFeedback>
+            <BagContent />
+          </BagFeedback>
         </ViewTransition>
       </Suspense>
     </div>
@@ -43,16 +50,41 @@ async function BagContent() {
   const bag = await getBag();
 
   if (bag.lines.length === 0) {
+    const suggestions = await getNewArrivals(4);
     return (
-      <div className="flex flex-col items-center border-t py-section text-center">
-        <p className="text-title">Your bag is empty</p>
-        <p className="mt-3 max-w-sm text-body text-muted">Pieces you add will wait for you here.</p>
-        <Link href="/new-in" className={`${buttonStyles({ variant: "secondary" })} mt-8`}>
-          Shop new arrivals
-        </Link>
-      </div>
+      <>
+        <div className="flex flex-col items-center border-t pt-section pb-16 text-center md:pb-20">
+          <p className="text-title">Your bag is empty</p>
+          <p className="mt-3 max-w-sm text-body text-muted">Pieces you add will wait for you here.</p>
+          <Link href="/new-in" className={`${buttonStyles({ variant: "secondary" })} mt-8`}>
+            Shop new arrivals
+          </Link>
+        </div>
+        <section aria-labelledby="bag-suggestions-title">
+          <SectionHeader
+            id="bag-suggestions-title"
+            eyebrow="Just in"
+            title="New arrivals"
+            action={
+              <TextLink href="/new-in" variant="cta">
+                View all
+              </TextLink>
+            }
+          />
+          <ProductGrid layout="feature">
+            {suggestions.map((product) => (
+              <li key={product.slug}>
+                <ProductCard product={product} />
+              </li>
+            ))}
+          </ProductGrid>
+        </section>
+      </>
     );
   }
+
+  const unavailable = bag.lines.filter((line) => line.status === "unavailable").length;
+  const reduced = bag.lines.filter((line) => line.status === "reduced").length;
 
   return (
     <>
@@ -94,6 +126,21 @@ async function BagContent() {
               </p>
             </div>
             <p className="mt-2 text-body-sm text-muted">Taxes and delivery are confirmed at checkout.</p>
+            {(unavailable > 0 || reduced > 0) && (
+              <ul role="list" className="mt-6 space-y-2 border-l-2 border-warning bg-surface px-4 py-3 text-body-sm">
+                {unavailable > 0 && (
+                  <li>
+                    {unavailable === 1 ? "1 piece is" : `${unavailable} pieces are`} no longer available and not included
+                    in your total.
+                  </li>
+                )}
+                {reduced > 0 && (
+                  <li>
+                    {reduced === 1 ? "1 quantity was" : `${reduced} quantities were`} reduced to what&rsquo;s in stock.
+                  </li>
+                )}
+              </ul>
+            )}
             <p className="mt-6 border-t pt-6 text-body-sm text-muted">Checkout is coming soon.</p>
             <TextLink href="/new-in" variant="cta" className="mt-6 inline-block">
               Continue shopping
