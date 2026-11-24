@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { Suspense } from "react";
 
-import { BagIcon, SearchIcon } from "@/components/icons";
+import { BagLink, BagLinkView } from "@/components/cart/bag-link";
+import { SearchIcon } from "@/components/icons";
 import { AccountLink } from "@/components/site/account-link";
 import { HeaderNav } from "@/components/site/header-nav";
 import { HeaderShell } from "@/components/site/header-shell";
@@ -57,9 +59,10 @@ export function SiteHeader() {
               <AccountLink />
             </div>
             <SavedLink />
-            <Link href="/bag" className={iconLink} aria-label="Shopping bag">
-              <BagIcon />
-            </Link>
+            {/* The count is request data (cart cookie + session): only this streams; the header stays static. */}
+            <Suspense fallback={<BagLinkView count={0} />}>
+              <BagLink />
+            </Suspense>
           </div>
         </div>
 

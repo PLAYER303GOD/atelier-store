@@ -1,12 +1,12 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { AddToBagButton } from "@/components/cart/add-to-bag-button";
 import { ProductCard } from "@/components/product/product-card";
 import { ProductGallery } from "@/components/product/product-gallery";
 import { SaveButton } from "@/components/product/save-button";
 import { StockStatus } from "@/components/product/stock-status";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
-import { Button } from "@/components/ui/button";
 import { Disclosure } from "@/components/ui/disclosure";
 import { MediaFrame } from "@/components/ui/media-frame";
 import { ProductGrid } from "@/components/ui/product-grid";
@@ -65,10 +65,7 @@ export function ProductDetail({ product, related }: { product: Product; related:
                 <dd>{soldOut ? "Unavailable" : "2–4 business days"}</dd>
               </dl>
 
-              {/* Not wired to a cart yet. */}
-              <Button fullWidth className="mt-8" disabled={soldOut}>
-                {soldOut ? "Out of stock" : "Add to bag"}
-              </Button>
+              <AddToBagButton slug={product.slug} soldOut={soldOut} />
               {/* Available even when sold out — that's when saving matters most. */}
               <SaveButton slug={product.slug} name={product.name} className="mt-3" />
 

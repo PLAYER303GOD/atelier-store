@@ -47,6 +47,14 @@ export function HeartIcon({ filled = false, ...props }: IconProps & { filled?: b
   );
 }
 
+export function MinusIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M5 12h14" />
+    </Icon>
+  );
+}
+
 export function PlusIcon(props: IconProps) {
   return (
     <Icon {...props}>
