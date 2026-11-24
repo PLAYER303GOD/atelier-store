@@ -13,7 +13,16 @@ import { randomInt } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 
 import { db } from "@/db";
-import { type OrderStatus, orderItems, orders, stocks } from "@/db/schema";
+import {
+  cartItems,
+  carts,
+  type OrderShipping,
+  type OrderStatus,
+  orderItems,
+  orders,
+  stocks,
+  stripeEvents,
+} from "@/db/schema";
 import type { Image } from "@/lib/catalog";
 
 /** How long stock is held and the Checkout Session stays open. Stripe's minimum is 30 minutes. */
@@ -131,6 +140,96 @@ export async function releaseOrder(orderId: number, to: ReleaseStatus): Promise<
     select (select count(*) from closed)::int as released
   `);
   return Number(result.rows[0]?.released ?? 0) > 0;
+}
+
+// ── Webhook transitions ─────────────────────────────────────────────────
+// Each is one guarded statement: it changes the order only from the statuses it allows, so a
+// duplicate or out-of-order event finds nothing to change. Terminal statuses never move again.
+
+/** The order a Checkout Session belongs to, by the reference we put in its metadata. */
+export async function findOrderByReference(reference: string) {
+  const [row] = await db
+    .select({
+      id: orders.id,
+      status: orders.status,
+      totalCents: orders.totalCents,
+      currency: orders.currency,
+      stripeCheckoutSessionId: orders.stripeCheckoutSessionId,
+    })
+    .from(orders)
+    .where(eq(orders.reference, reference))
+    .limit(1);
+  return row;
+}
+
+/** pending → processing (session completed, payment not settled yet). Stock stays held. */
+export async function markOrderProcessing(orderId: number, sessionId: string): Promise<boolean> {
+  const rows = await db
+    .update(orders)
+    .set({ status: "processing", stripeCheckoutSessionId: sql`coalesce(${orders.stripeCheckoutSessionId}, ${sessionId})` })
+    .where(and(eq(orders.id, orderId), eq(orders.status, "pending")))
+    .returning({ id: orders.id });
+  return rows.length > 0;
+}
+
+export type PaymentConfirmation = {
+  sessionId: string;
+  paymentIntentId: string | null;
+  amountPaidCents: number;
+  shipping: OrderShipping | null;
+};
+
+/**
+ * pending|processing → paid, and the paid quantities leave the buyer's bag, in one statement.
+ * The stock was already taken when the order was created, so it isn't touched here. Lines are
+ * reduced by what was bought (deleted when that's all of them), so anything added to the bag
+ * during checkout stays. Returns whether this call made the change.
+ */
+export async function markOrderPaid(orderId: number, payment: PaymentConfirmation): Promise<boolean> {
+  const result = await db.execute<{ paid: number }>(sql`
+    with paid as (
+      update ${orders}
+      set status = 'paid',
+          paid_at = now(),
+          amount_paid_cents = ${payment.amountPaidCents},
+          stripe_payment_intent_id = coalesce(${payment.paymentIntentId}, ${orders.stripePaymentIntentId}),
+          stripe_checkout_session_id = coalesce(${orders.stripeCheckoutSessionId}, ${payment.sessionId}),
+          shipping = coalesce(${payment.shipping ? JSON.stringify(payment.shipping) : null}::jsonb, ${orders.shipping}),
+          updated_at = now()
+      where ${orders.id} = ${orderId} and ${orders.status} in ('pending', 'processing')
+      returning ${orders.id} as id, ${orders.userId} as user_id
+    ), bought as (
+      select ci.cart_id, ci.product_id, ci.quantity as in_bag, oi.quantity as bought
+      from paid
+      join ${carts} c on c.user_id = paid.user_id
+      join ${orderItems} oi on oi.order_id = paid.id
+      join ${cartItems} ci on ci.cart_id = c.id and ci.product_id = oi.product_id
+    ), reduced as (
+      update ${cartItems} ci set quantity = ci.quantity - b.bought, updated_at = now()
+      from bought b
+      where ci.cart_id = b.cart_id and ci.product_id = b.product_id and b.in_bag > b.bought
+      returning 1
+    ), removed as (
+      delete from ${cartItems} ci
+      using bought b
+      where ci.cart_id = b.cart_id and ci.product_id = b.product_id and b.in_bag <= b.bought
+      returning 1
+    )
+    select (select count(*) from paid)::int as paid
+  `);
+  return Number(result.rows[0]?.paid ?? 0) > 0;
+}
+
+// ── Stripe event ledger ─────────────────────────────────────────────────
+
+export async function isEventProcessed(eventId: string): Promise<boolean> {
+  const [row] = await db.select({ id: stripeEvents.id }).from(stripeEvents).where(eq(stripeEvents.id, eventId)).limit(1);
+  return row !== undefined;
+}
+
+/** Recorded only after an event was handled, so a crash mid-way is retried, not skipped. */
+export async function recordEvent(eventId: string, type: string): Promise<void> {
+  await db.insert(stripeEvents).values({ id: eventId, type }).onConflictDoNothing();
 }
 
 /** The user's orders that still hold stock, oldest first. */
