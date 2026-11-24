@@ -153,6 +153,8 @@ async function OrderContent({ searchParams }: Pick<PageProps<"/checkout/success"
 
 /** Heading, intro and next step for each order status. Never writes anything. */
 async function viewFor(order: OrderSummary, sessionId: string, email: string): Promise<View> {
+  // Kept on one line: customers quote it, and it would otherwise break at its hyphen.
+  const reference = <span className="whitespace-nowrap">{order.reference}</span>;
   const continueShopping = (
     <TextLink href="/new-in" variant="cta" className="self-start">
       Continue shopping
@@ -175,14 +177,22 @@ async function viewFor(order: OrderSummary, sessionId: string, email: string): P
       return {
         eyebrow: "Order confirmed",
         title: "Thank you for your order",
-        intro: `Order ${order.reference} is confirmed. A receipt is on its way to ${email}.`,
+        intro: (
+          <>
+            Order {reference} is confirmed. A receipt is on its way to {email}.
+          </>
+        ),
         actions: continueShopping,
       };
     case "processing":
       return {
         eyebrow: "Payment processing",
         title: "Your payment is processing",
-        intro: `We've reserved your pieces and will confirm order ${order.reference} by email as soon as your payment clears.`,
+        intro: (
+          <>
+            We&rsquo;ve reserved your pieces and will confirm order {reference} by email as soon as your payment clears.
+          </>
+        ),
         actions: continueShopping,
       };
     case "failed":
@@ -211,7 +221,13 @@ async function viewFor(order: OrderSummary, sessionId: string, email: string): P
       return {
         eyebrow: "Payment status unknown",
         title: "We can't confirm this payment yet",
-        intro: `We couldn't look up the payment for order ${order.reference}, so we can't tell whether you were charged. Please don't pay again. If a charge appears on your statement, contact us with your order number and we'll reconcile it.`,
+        intro: (
+          <>
+            We couldn&rsquo;t look up the payment for order {reference}, so we can&rsquo;t tell whether you were charged.
+            Please don&rsquo;t pay again. If a charge appears on your statement, contact us with your order number and
+            we&rsquo;ll reconcile it.
+          </>
+        ),
         actions: (
           <TextLink href="/client-services" variant="cta" className="self-start">
             Contact us
@@ -241,7 +257,11 @@ async function viewFor(order: OrderSummary, sessionId: string, email: string): P
   return {
     eyebrow: "Confirming payment",
     title: "Thank you, we're confirming your payment",
-    intro: `This usually takes a few seconds. We'll email ${email} when order ${order.reference} is confirmed.`,
+    intro: (
+      <>
+        This usually takes a few seconds. We&rsquo;ll email {email} when order {reference} is confirmed.
+      </>
+    ),
     actions: continueShopping,
     waiting: true,
   };

@@ -19,7 +19,7 @@ export function OpenCheckoutNotice({ checkout }: { checkout: OpenCheckout }) {
     return (
       <p role="status" className="mb-6 border-l-2 border-ink bg-surface px-4 py-3 text-body-sm">
         Your last payment is still being confirmed. There&rsquo;s no need to pay again; we&rsquo;ll update order{" "}
-        {checkout.reference} as soon as it clears.
+        <span className="whitespace-nowrap">{checkout.reference}</span> as soon as it clears.
       </p>
     );
   }
