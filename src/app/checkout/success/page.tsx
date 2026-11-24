@@ -205,10 +205,19 @@ async function viewFor(order: OrderSummary, sessionId: string, email: string): P
     session = await getStripe().checkout.sessions.retrieve(sessionId);
   } catch (error) {
     if (isMissingResource(error)) {
-      // Not in our Stripe account (made with another account's key): no payment for it can reach
-      // us. The order is released the next time this customer starts checkout.
+      // Not in our Stripe account (e.g. made with another account's key), so we can't see whether
+      // it was paid. Say exactly that: never "no charge", and never invite paying again.
       console.warn(`Checkout Session for ${order.reference} is unknown to this Stripe account`);
-      return closed;
+      return {
+        eyebrow: "Payment status unknown",
+        title: "We can't confirm this payment yet",
+        intro: `We couldn't look up the payment for order ${order.reference}, so we can't tell whether you were charged. Please don't pay again. If a charge appears on your statement, contact us with your order number and we'll reconcile it.`,
+        actions: (
+          <TextLink href="/client-services" variant="cta" className="self-start">
+            Contact us
+          </TextLink>
+        ),
+      };
     }
     console.error("Retrieving the Checkout Session for the success page failed", error);
   }

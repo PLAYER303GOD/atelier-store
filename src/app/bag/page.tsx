@@ -6,6 +6,7 @@ import { BagFeedback } from "@/components/cart/bag-feedback";
 import { BagLineControls } from "@/components/cart/bag-line-controls";
 import { CheckoutButton } from "@/components/cart/checkout-button";
 import { CheckoutCanceledNotice } from "@/components/cart/checkout-canceled-notice";
+import { OpenCheckoutNotice } from "@/components/cart/open-checkout-notice";
 import { ProductCard } from "@/components/product/product-card";
 import { StockStatus } from "@/components/product/stock-status";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
@@ -17,6 +18,7 @@ import { SmoothImage } from "@/components/ui/smooth-image";
 import { TextLink } from "@/components/ui/text-link";
 import { type BagLine, getBag } from "@/lib/cart";
 import { formatPrice } from "@/lib/catalog";
+import { getOpenCheckout } from "@/lib/checkout";
 import { getNewArrivals } from "@/lib/products";
 
 export const metadata: Metadata = { title: "Shopping bag — Atelier Store", robots: { index: false } };
@@ -50,16 +52,21 @@ export default function BagPage({ searchParams }: PageProps<"/bag">) {
 }
 
 async function BagContent({ searchParams }: Pick<PageProps<"/bag">, "searchParams">) {
-  const [bag, query] = await Promise.all([getBag(), searchParams]);
-  const canceledNotice = query.checkout === "canceled" && (
-    <CheckoutCanceledNotice reference={typeof query.order === "string" ? query.order : undefined} />
-  );
+  const [bag, query, openCheckout] = await Promise.all([getBag(), searchParams, getOpenCheckout()]);
+  const canceledReference = query.checkout === "canceled" && typeof query.order === "string" ? query.order : undefined;
+  // Stripe's "back" link: that checkout is being cancelled, so don't also offer to cancel it.
+  const checkoutNotice =
+    query.checkout === "canceled" ? (
+      <CheckoutCanceledNotice reference={canceledReference} />
+    ) : (
+      openCheckout && <OpenCheckoutNotice checkout={openCheckout} />
+    );
 
   if (bag.lines.length === 0) {
     const suggestions = await getNewArrivals(4);
     return (
       <>
-        {canceledNotice}
+        {checkoutNotice}
         <div className="flex flex-col items-center border-t pt-section pb-16 text-center md:pb-20">
           <p className="text-title">Your bag is empty</p>
           <p className="mt-3 max-w-sm text-body text-muted">Pieces you add will wait for you here.</p>
@@ -95,7 +102,7 @@ async function BagContent({ searchParams }: Pick<PageProps<"/bag">, "searchParam
 
   return (
     <>
-      {canceledNotice}
+      {checkoutNotice}
       {/* Above both columns, so the item list and the summary card start on the same line. */}
       <p className="mb-4 text-body-sm text-muted">
         {bag.itemCount} {bag.itemCount === 1 ? "piece" : "pieces"}
