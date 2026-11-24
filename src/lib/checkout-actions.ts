@@ -63,6 +63,10 @@ async function beginCheckout(
   user: { id: string; email: string },
   signature: string,
 ): Promise<{ url: string } | { error: string }> {
+  // 0. Config first: a missing key or URL must fail before any stock is held.
+  const stripe = getStripe();
+  const base = appUrl();
+
   // 1. One open checkout per user: close earlier ones so their stock is back before we check.
   if (await closeOpenCheckouts(user.id)) updateTag("products");
 
@@ -108,8 +112,6 @@ async function beginCheckout(
 
   // 4. Stripe Checkout Session, built only from the order snapshot. Hosted page, dynamic payment
   //    methods (no payment_method_types), no automatic tax (no registration yet).
-  const stripe = getStripe();
-  const base = appUrl();
   let session: Stripe.Checkout.Session;
   try {
     session = await stripe.checkout.sessions.create(
