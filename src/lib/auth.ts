@@ -1,9 +1,11 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { createAuthMiddleware } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 
 import { db } from "@/db";
 import * as schema from "@/db/schema";
+import { CART_COOKIE, mergeGuestCartIntoUser } from "@/lib/cart-store";
 
 /** Values of `users.role`. Only the server sets it (see `input: false`); `pnpm auth:make-admin` promotes. */
 export const ROLES = ["customer", "admin"] as const;
@@ -37,6 +39,24 @@ export const auth = betterAuth({
     expiresIn: 60 * 60 * 24 * 30, // persistent: 30 days…
     updateAge: 60 * 60 * 24, // …sliding, refreshed at most once a day while in use
     // No cookieCache: every check reads the DB, so sign-out and role changes apply immediately.
+  },
+
+  hooks: {
+    // The bag follows the account: on a successful sign-in or sign-up, move the guest bag (httpOnly
+    // `atelier_cart` cookie) into the account bag and clear the cookie. A failure here must never
+    // fail the sign-in; the next bag write retries the merge (src/lib/cart-actions.ts).
+    after: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== "/sign-in/email" && ctx.path !== "/sign-up/email") return;
+      const session = ctx.context.newSession;
+      const token = ctx.getCookie(CART_COOKIE);
+      if (!session || !token) return;
+      try {
+        await mergeGuestCartIntoUser(token, session.user.id);
+        ctx.setCookie(CART_COOKIE, "", { path: "/", maxAge: 0 });
+      } catch (error) {
+        console.error("Merging the guest bag at sign-in failed", error);
+      }
+    }),
   },
 
   plugins: [nextCookies()], // must stay last in the plugins array
