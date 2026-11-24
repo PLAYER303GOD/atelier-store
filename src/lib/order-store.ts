@@ -40,6 +40,13 @@ export class OutOfStockError extends Error {
   }
 }
 
+/** Thrown by createOrderWithHold when the customer already has an open checkout (one per user). */
+export class CheckoutInProgressError extends Error {
+  constructor() {
+    super("This customer already has an open checkout");
+  }
+}
+
 // No 0/O or 1/I/L, so a reference read aloud or copied by hand can't be mistyped.
 const REFERENCE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 
@@ -60,9 +67,9 @@ export type OrderLineInput = {
   quantity: number;
 };
 
-const errorCode = (error: unknown): string | undefined => {
-  const e = error as { code?: string; cause?: { code?: string } };
-  return e?.code ?? e?.cause?.code;
+const pgError = (error: unknown): { code?: string; constraint?: string } => {
+  const e = error as { code?: string; constraint?: string; cause?: { code?: string; constraint?: string } };
+  return { code: e?.code ?? e?.cause?.code, constraint: e?.constraint ?? e?.cause?.constraint };
 };
 
 /**
@@ -97,6 +104,13 @@ export async function createOrderWithHold(input: {
           quantity: line.quantity,
         })),
       ),
+      // A missing stock row means 0. Materialise it as 0 so the update below covers every line
+      // (an update alone would silently skip it); the batch then fails, so the row never persists.
+      db.execute(sql`
+        insert into ${stocks} (product_id, quantity)
+        select oi.product_id, 0 from ${orderItems} oi where oi.order_id = ${orderId}
+        on conflict (product_id) do nothing
+      `),
       // Take the stock. A shortfall violates stocks_quantity_non_negative and rolls back the batch.
       db.execute(sql`
         update ${stocks} set quantity = ${stocks.quantity} - oi.quantity, updated_at = now()
@@ -106,7 +120,9 @@ export async function createOrderWithHold(input: {
     ]);
     return { id: inserted[0].id, totalCents: subtotalCents };
   } catch (error) {
-    if (errorCode(error) === "23514") throw new OutOfStockError();
+    const { code, constraint } = pgError(error);
+    if (code === "23514") throw new OutOfStockError();
+    if (code === "23505" && constraint === "orders_one_open_per_user") throw new CheckoutInProgressError();
     throw error;
   }
 }
@@ -124,12 +140,21 @@ export async function attachCheckoutSession(orderId: number, sessionId: string):
 /**
  * Closes an open order as `to` and returns its stock, in one statement. Returns whether this
  * call made the change (false: already closed, so nothing was returned twice).
+ *
+ * `unlinkedOnly`: only while no Checkout Session is attached, checked in the same statement. A
+ * concurrent checkout may attach one after the caller looked; that order must not lose its hold
+ * while its session can still be paid.
  */
-export async function releaseOrder(orderId: number, to: ReleaseStatus): Promise<boolean> {
+export async function releaseOrder(
+  orderId: number,
+  to: ReleaseStatus,
+  { unlinkedOnly = false }: { unlinkedOnly?: boolean } = {},
+): Promise<boolean> {
+  const unlinked = unlinkedOnly ? sql`and ${orders.stripeCheckoutSessionId} is null` : sql``;
   const result = await db.execute<{ released: number }>(sql`
     with closed as (
       update ${orders} set status = ${to}, updated_at = now()
-      where ${orders.id} = ${orderId} and ${orders.status} in ('pending', 'processing')
+      where ${orders.id} = ${orderId} and ${orders.status} in ('pending', 'processing') ${unlinked}
       returning ${orders.id} as id
     ), restocked as (
       update ${stocks} set quantity = ${stocks.quantity} + oi.quantity, updated_at = now()
@@ -184,6 +209,11 @@ export type PaymentConfirmation = {
  * The stock was already taken when the order was created, so it isn't touched here. Lines are
  * reduced by what was bought (deleted when that's all of them), so anything added to the bag
  * during checkout stays. Returns whether this call made the change.
+ *
+ * Only the bag line that was checked out is touched: one created before the order. A line removed
+ * during checkout and added again later is a new row, so it's left alone. Reduce-or-delete is
+ * decided on the line's current quantity (`ci.quantity`, re-checked on the latest row version if
+ * a concurrent bag write got there first), never on a value read earlier in the statement.
  */
 export async function markOrderPaid(orderId: number, payment: PaymentConfirmation): Promise<boolean> {
   const result = await db.execute<{ paid: number }>(sql`
@@ -197,22 +227,23 @@ export async function markOrderPaid(orderId: number, payment: PaymentConfirmatio
           shipping = coalesce(${payment.shipping ? JSON.stringify(payment.shipping) : null}::jsonb, ${orders.shipping}),
           updated_at = now()
       where ${orders.id} = ${orderId} and ${orders.status} in ('pending', 'processing')
-      returning ${orders.id} as id, ${orders.userId} as user_id
+      returning ${orders.id} as id, ${orders.userId} as user_id, ${orders.createdAt} as ordered_at
     ), bought as (
-      select ci.cart_id, ci.product_id, ci.quantity as in_bag, oi.quantity as bought
+      select ci.cart_id, ci.product_id, oi.quantity as bought
       from paid
       join ${carts} c on c.user_id = paid.user_id
       join ${orderItems} oi on oi.order_id = paid.id
       join ${cartItems} ci on ci.cart_id = c.id and ci.product_id = oi.product_id
+      where ci.created_at <= paid.ordered_at
     ), reduced as (
       update ${cartItems} ci set quantity = ci.quantity - b.bought, updated_at = now()
       from bought b
-      where ci.cart_id = b.cart_id and ci.product_id = b.product_id and b.in_bag > b.bought
+      where ci.cart_id = b.cart_id and ci.product_id = b.product_id and ci.quantity > b.bought
       returning 1
     ), removed as (
       delete from ${cartItems} ci
       using bought b
-      where ci.cart_id = b.cart_id and ci.product_id = b.product_id and b.in_bag <= b.bought
+      where ci.cart_id = b.cart_id and ci.product_id = b.product_id and ci.quantity <= b.bought
       returning 1
     )
     select (select count(*) from paid)::int as paid
@@ -232,23 +263,56 @@ export async function recordEvent(eventId: string, type: string): Promise<void> 
   await db.insert(stripeEvents).values({ id: eventId, type }).onConflictDoNothing();
 }
 
-/** The user's orders that still hold stock, oldest first. */
-export async function findOpenOrders(userId: string) {
+const openOrderFields = {
+  id: orders.id,
+  reference: orders.reference,
+  status: orders.status,
+  stripeCheckoutSessionId: orders.stripeCheckoutSessionId,
+  expiresAt: orders.expiresAt,
+};
+export type OpenOrder = { id: number; reference: string; status: OrderStatus; stripeCheckoutSessionId: string | null; expiresAt: Date };
+
+/** The user's orders that still hold stock, oldest first (at most one, by orders_one_open_per_user). */
+export async function findOpenOrders(userId: string): Promise<OpenOrder[]> {
   return db
-    .select({ id: orders.id, status: orders.status, stripeCheckoutSessionId: orders.stripeCheckoutSessionId })
+    .select(openOrderFields)
     .from(orders)
     .where(and(eq(orders.userId, userId), inArray(orders.status, [...OPEN_STATUSES])))
     .orderBy(asc(orders.createdAt));
 }
 
-/** A pending order of this user by its public reference (for cancelling from the return URL). */
-export async function findPendingOrder(reference: string, userId: string) {
+/** The order again, if it is still open (re-read after a guarded update didn't apply). */
+export async function findOpenOrderById(orderId: number): Promise<OpenOrder | undefined> {
   const [row] = await db
-    .select({ id: orders.id, stripeCheckoutSessionId: orders.stripeCheckoutSessionId })
+    .select(openOrderFields)
+    .from(orders)
+    .where(and(eq(orders.id, orderId), inArray(orders.status, [...OPEN_STATUSES])))
+    .limit(1);
+  return row;
+}
+
+/** A pending order of this user by its public reference (for cancelling from the return URL). */
+export async function findPendingOrder(reference: string, userId: string): Promise<OpenOrder | undefined> {
+  const [row] = await db
+    .select(openOrderFields)
     .from(orders)
     .where(and(eq(orders.reference, reference), eq(orders.userId, userId), eq(orders.status, "pending")))
     .limit(1);
   return row;
+}
+
+/** Pending orders that never got a Checkout Session and whose hold has run out (for the sweep). */
+export async function findExpiredUnlinkedOrders(graceMinutes: number): Promise<{ id: number; reference: string }[]> {
+  return db
+    .select({ id: orders.id, reference: orders.reference })
+    .from(orders)
+    .where(
+      and(
+        eq(orders.status, "pending"),
+        sql`${orders.stripeCheckoutSessionId} is null`,
+        sql`${orders.expiresAt} < now() - make_interval(mins => ${graceMinutes})`,
+      ),
+    );
 }
 
 export type OrderSummary = {

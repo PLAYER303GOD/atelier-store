@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, jsonb, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
+import { check, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 import { users } from "./auth-schema";
 import { MAX_PER_LINE } from "./cart-schema";
@@ -73,6 +73,9 @@ export const orders = pgTable(
   },
   (t) => [
     index("orders_user_id_idx").on(t.userId),
+    // At most one open checkout per customer: a second concurrent start fails here (23505)
+    // instead of holding stock twice or opening a second payable session.
+    uniqueIndex("orders_one_open_per_user").on(t.userId).where(sql`${t.status} in ('pending', 'processing')`),
     // Reconciliation: open orders whose hold has run out.
     index("orders_status_expires_at_idx").on(t.status, t.expiresAt),
     check("orders_status_valid", sql`${t.status} in (${statusList})`),

@@ -56,14 +56,17 @@ export async function applyCheckoutEvent(type: HandledEvent, session: Stripe.Che
     case "checkout.session.async_payment_succeeded":
       return confirmPaid(order, reference, session);
 
+    // stockChanged is true even when this delivery found nothing to release: an earlier delivery
+    // may have returned the stock and then failed before refreshing the catalogue (and before the
+    // event was recorded, which is why this one is a retry).
     case "checkout.session.async_payment_failed": {
       const released = await releaseOrder(order.id, "failed");
-      return { stockChanged: released, result: released ? `${reference} failed, stock returned` : `${reference} unchanged (${order.status})` };
+      return { stockChanged: true, result: released ? `${reference} failed, stock returned` : `${reference} unchanged (${order.status})` };
     }
 
     case "checkout.session.expired": {
       const released = await releaseOrder(order.id, "expired");
-      return { stockChanged: released, result: released ? `${reference} expired, stock returned` : `${reference} unchanged (${order.status})` };
+      return { stockChanged: true, result: released ? `${reference} expired, stock returned` : `${reference} unchanged (${order.status})` };
     }
   }
 }

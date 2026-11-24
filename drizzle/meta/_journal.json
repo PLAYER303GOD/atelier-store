@@ -36,6 +36,13 @@
       "when": 1795526897723,
       "tag": "0004_orders",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795531135588,
+      "tag": "0005_one_open_order_per_user",
+      "breakpoints": true
     }
   ]
 }

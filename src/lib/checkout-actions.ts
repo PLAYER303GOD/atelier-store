@@ -4,7 +4,9 @@
 //   - the caller must be signed in (requireUser, read fresh), and acts only on their own bag/orders;
 //   - prices, quantities and products come from Postgres, never from the client. The only input
 //     is the bag signature the page rendered, used to refuse checkout if the bag changed;
-//   - this never marks an order paid. Payment is confirmed by Stripe's webhook (next step).
+//   - this never marks an order paid. Payment is confirmed by Stripe's webhook;
+//   - a customer has at most one open checkout (orders_one_open_per_user), and a new one never
+//     starts while an earlier payment may still go through.
 //
 // Flow: close the user's earlier open checkout → re-read the bag live → create the order and hold
 // its stock in one transaction → create the Checkout Session from the order snapshot → link it →
@@ -19,11 +21,14 @@ import { toBag } from "@/lib/cart";
 import { findUserCartId, readLines } from "@/lib/cart-store";
 import {
   attachCheckoutSession,
+  CheckoutInProgressError,
   createOrderWithHold,
+  findOpenOrderById,
   findOpenOrders,
   findPendingOrder,
   HOLD_MINUTES,
   newOrderReference,
+  type OpenOrder,
   OutOfStockError,
   releaseOrder,
 } from "@/lib/order-store";
@@ -33,6 +38,8 @@ import { appUrl, getStripe, isMissingResource } from "@/lib/stripe";
 export type CheckoutResult = { ok: false; error: string };
 
 const GENERIC_ERROR = "We couldn't start checkout. Please try again.";
+const PAYMENT_UNRESOLVED =
+  "Your previous checkout is still being finalised, so we haven't started a new one. Please check your order status before trying again.";
 const REFERENCE_PATTERN = /^AT-[2-9A-HJ-NP-Z]{8}$/;
 /** Tags our sessions in the Stripe Dashboard (fixed label + 8 random letters, per Stripe's guidance). */
 const INTEGRATION_IDENTIFIER = "atelier_bag_checkout_qhzmwtrd";
@@ -67,8 +74,15 @@ async function beginCheckout(
   const stripe = getStripe();
   const base = appUrl();
 
-  // 1. One open checkout per user: close earlier ones so their stock is back before we check.
-  if (await closeOpenCheckouts(user.id)) updateTag("products");
+  // 1. One open checkout per user: close earlier ones so their stock is back before we check. One
+  //    whose payment may still be going through (processing, or Stripe says complete) stops here:
+  //    starting another could charge the customer twice.
+  const earlier = await closeOpenCheckouts(user.id);
+  if (earlier.released) updateTag("products");
+  if (earlier.unresolved) {
+    refresh();
+    return { error: PAYMENT_UNRESOLVED };
+  }
 
   // 2. Re-read the bag live (prices and stock straight from Postgres) and compare with the page.
   const cartId = await findUserCartId(user.id);
@@ -105,6 +119,11 @@ async function beginCheckout(
     if (error instanceof OutOfStockError) {
       refresh();
       return { error: "Some pieces have just sold out. We've updated your bag." };
+    }
+    if (error instanceof CheckoutInProgressError) {
+      // Another start (a second tab) got its order in first; that one is the open checkout.
+      refresh();
+      return { error: "A checkout is already in progress for your bag. Please finish or cancel it first." };
     }
     throw error;
   }
@@ -169,45 +188,78 @@ export async function cancelCheckout(reference: string): Promise<{ ok: boolean }
     const user = await getSignedInUser();
     if (!user) return { ok: false };
     const order = await findPendingOrder(reference, user.id);
-    if (!order) return { ok: true }; // already closed (or not theirs): nothing to do
-    if (await closeCheckout(order)) {
-      updateTag("products");
-      refresh();
+    if (!order) {
+      refresh(); // already closed (or not theirs): nothing to do, but show the bag as it is now
+      return { ok: true };
     }
-    return { ok: true };
+    const result = await closeCheckout(order);
+    if (result.released) updateTag("products");
+    refresh();
+    return { ok: result.closed };
   } catch (error) {
     console.error("cancelCheckout failed", error);
     return { ok: false };
   }
 }
 
-/** Closes all the user's pending checkouts. Returns whether any stock came back. */
-async function closeOpenCheckouts(userId: string): Promise<boolean> {
+/**
+ * Closes the user's open checkouts. `released`: stock came back. `unresolved`: one could not be
+ * closed because its payment may still go through; the caller must not start another checkout.
+ */
+async function closeOpenCheckouts(userId: string): Promise<{ released: boolean; unresolved: boolean }> {
   let released = false;
+  let unresolved = false;
   for (const order of await findOpenOrders(userId)) {
-    // "processing" means Stripe has the payment (async method); leave it to the webhook.
-    if (order.status === "pending" && (await closeCheckout(order))) released = true;
+    // "processing": Stripe has the payment (async method) and the webhook will settle it.
+    if (order.status === "processing") {
+      unresolved = true;
+      continue;
+    }
+    const result = await closeCheckout(order);
+    if (result.released) released = true;
+    if (!result.closed) unresolved = true;
   }
-  return released;
+  return { released, unresolved };
 }
 
+/** `closed`: the order no longer holds stock or takes payment. `released`: this call returned stock. */
+type CloseResult = { closed: boolean; released: boolean };
+
 /**
- * Expires a pending order's Checkout Session at Stripe, then returns its stock. If Stripe says
- * the session already completed, the customer has paid: leave the order for the webhook.
+ * Closes a pending order: expires its Checkout Session at Stripe, then returns its stock. Stays
+ * open whenever a payment for it might still go through: Stripe says the session completed (the
+ * webhook will settle it), or Stripe doesn't know the session and its expiry hasn't passed.
  */
-async function closeCheckout(order: { id: number; stripeCheckoutSessionId: string | null }): Promise<boolean> {
-  if (!order.stripeCheckoutSessionId) return releaseOrder(order.id, "canceled");
+async function closeCheckout(order: OpenOrder): Promise<CloseResult> {
+  if (!order.stripeCheckoutSessionId) {
+    // Never linked: release only if that's still true in the same statement. A concurrent start
+    // may have attached a session since we read the order; then close that session first.
+    if (await releaseOrder(order.id, "canceled", { unlinkedOnly: true })) return { closed: true, released: true };
+    const now = await findOpenOrderById(order.id);
+    if (!now) return { closed: true, released: false }; // closed by someone else meanwhile
+    if (now.status === "processing" || !now.stripeCheckoutSessionId) return { closed: false, released: false };
+    return closeCheckout(now);
+  }
+
   const stripe = getStripe();
   try {
     await stripe.checkout.sessions.expire(order.stripeCheckoutSessionId);
-    return releaseOrder(order.id, "canceled");
+    const released = await releaseOrder(order.id, "canceled");
+    return { closed: true, released };
   } catch (error) {
-    // Unknown to this Stripe account (e.g. created with a key for another account or sandbox):
-    // no payment for it can ever reach our webhook, so it must not hold stock or block checkout.
-    if (isMissingResource(error)) return releaseOrder(order.id, "canceled");
+    if (isMissingResource(error)) {
+      // Not in this Stripe account (e.g. made with another account's key). We can't see whether
+      // it was paid, but Stripe stops taking payment at its expires_at, so hold until then.
+      if (order.expiresAt.getTime() > Date.now()) return { closed: false, released: false };
+      const released = await releaseOrder(order.id, "expired");
+      return { closed: true, released };
+    }
     const session = await stripe.checkout.sessions.retrieve(order.stripeCheckoutSessionId);
-    if (session.status === "expired") return releaseOrder(order.id, "expired");
-    return false; // complete: paid or paying
+    if (session.status === "expired") {
+      const released = await releaseOrder(order.id, "expired");
+      return { closed: true, released };
+    }
+    return { closed: false, released: false }; // complete: paid or paying; the webhook settles it
   }
 }
 
