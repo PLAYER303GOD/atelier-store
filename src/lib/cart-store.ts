@@ -152,6 +152,8 @@ export async function deleteLine(cartId: number, productId: number): Promise<voi
 
 /** A bag line as stored, joined with live product data (price, stock). */
 export type CartRow = {
+  /** Server-side only (order snapshots); the UI identifies products by slug. */
+  productId: number;
   slug: string;
   name: string;
   categorySlug: string;
@@ -167,6 +169,7 @@ export type CartRow = {
 export async function readLines(cartId: number): Promise<CartRow[]> {
   const rows = await db
     .select({
+      productId: products.id,
       slug: products.slug,
       name: products.name,
       categorySlug: categories.slug,

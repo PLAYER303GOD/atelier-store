@@ -12,7 +12,7 @@ import "server-only";
 
 import { cookies } from "next/headers";
 
-import { CART_COOKIE, countItems, findGuestCartId, findUserCartId, readLines } from "@/lib/cart-store";
+import { CART_COOKIE, type CartRow, countItems, findGuestCartId, findUserCartId, readLines } from "@/lib/cart-store";
 import type { Image } from "@/lib/catalog";
 import { getSignedInUser } from "@/lib/session";
 
@@ -32,9 +32,19 @@ export type BagLine = {
   status: "ok" | "reduced" | "unavailable";
 };
 
-export type Bag = { lines: BagLine[]; itemCount: number; subtotalCents: number };
+export type Bag = {
+  lines: BagLine[];
+  itemCount: number;
+  subtotalCents: number;
+  /**
+   * What the bag showed: each line's slug, quantity and unit price. The checkout form posts it
+   * back so checkout can refuse if anything changed since the page rendered. It is only compared,
+   * never used for pricing, so a tampered value can at worst make checkout refuse.
+   */
+  signature: string;
+};
 
-const EMPTY_BAG: Bag = { lines: [], itemCount: 0, subtotalCents: 0 };
+const EMPTY_BAG: Bag = { lines: [], itemCount: 0, subtotalCents: 0, signature: "" };
 
 /** The current visitor's cart id, without creating anything. */
 async function currentCartId(): Promise<number | undefined> {
@@ -48,8 +58,12 @@ async function currentCartId(): Promise<number | undefined> {
 export async function getBag(): Promise<Bag> {
   const cartId = await currentCartId();
   if (cartId === undefined) return EMPTY_BAG;
+  return toBag(await readLines(cartId));
+}
 
-  const lines = (await readLines(cartId)).map((row): BagLine => {
+/** Stored lines → what the bag can deliver now. Shared by the bag page and checkout. */
+export function toBag(rows: CartRow[]): Bag {
+  const lines = rows.map((row): BagLine => {
     const quantity = Math.min(row.quantity, row.available);
     return {
       slug: row.slug,
@@ -69,6 +83,7 @@ export async function getBag(): Promise<Bag> {
     lines,
     itemCount: lines.reduce((sum, line) => sum + line.quantity, 0),
     subtotalCents: lines.reduce((sum, line) => sum + line.lineTotalCents, 0),
+    signature: lines.map((line) => `${line.slug}:${line.quantity}:${line.unitPriceCents}`).join("|"),
   };
 }
 
