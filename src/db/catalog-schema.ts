@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { check, index, integer, jsonb, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 
 // Catalogue tables: categories 1──< products 1──1 stocks, and products >──< collections.
-// Variants, carts and orders are deliberately out of scope for now.
+// Variants are deliberately out of scope for now. Carts and orders live in their own files.
 
 export type ProductImage = { src: string; alt: string };
 
