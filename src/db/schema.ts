@@ -4,4 +4,5 @@
 // hand. After changing Better Auth options or plugins, re-run:
 //   pnpm auth:generate && pnpm db:generate && pnpm db:migrate
 export * from "./auth-schema";
+export * from "./cart-schema";
 export * from "./catalog-schema";
