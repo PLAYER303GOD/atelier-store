@@ -24,8 +24,12 @@ export type CurrentUser = {
 
 const toRole = (value: unknown): Role => (ROLES.includes(value as Role) ? (value as Role) : "customer");
 
-/** Reads the session from the DB on every call. Authorization decisions use this. */
-async function readCurrentUser(): Promise<CurrentUser | null> {
+/**
+ * The signed-in user or null, read from the DB on every call (never cached). Authorization
+ * decisions use this, directly or via requireUser / requireAdmin; so does the bag, whose owner
+ * depends on it.
+ */
+export async function getSignedInUser(): Promise<CurrentUser | null> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return null;
   const { user } = session;
@@ -46,7 +50,7 @@ async function readCurrentUser(): Promise<CurrentUser | null> {
  */
 export async function getCurrentUser(): Promise<CurrentUser | null> {
   "use cache: private";
-  return readCurrentUser();
+  return getSignedInUser();
 }
 
 /** Only same-site paths ("/account"), never "//host", "/\host" or absolute URLs: no open redirects. */
@@ -60,7 +64,7 @@ export function safeReturnTo(next: unknown, fallback = "/account"): string {
 /** The signed-in user; anyone else is sent to sign-in and brought back to `returnTo`. */
 export async function requireUser(returnTo: string): Promise<CurrentUser> {
   // Fresh, not cached: sign-out elsewhere, role changes and profile edits apply immediately.
-  const user = await readCurrentUser();
+  const user = await getSignedInUser();
   if (!user) redirect(`/sign-in?${new URLSearchParams({ next: safeReturnTo(returnTo) })}`);
   return user;
 }
