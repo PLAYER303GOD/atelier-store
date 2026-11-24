@@ -157,7 +157,16 @@ async function BagContent({ searchParams }: Pick<PageProps<"/bag">, "searchParam
               </ul>
             )}
             <div className="mt-6 border-t pt-6">
-              <CheckoutButton signature={bag.signature} blocked={unavailable > 0} />
+              <CheckoutButton
+                signature={bag.signature}
+                blockedReason={
+                  openCheckout?.status === "processing"
+                    ? "Available once your last payment is confirmed."
+                    : unavailable > 0
+                      ? "Remove unavailable pieces to check out."
+                      : null
+                }
+              />
             </div>
             <TextLink href="/new-in" variant="cta" className="mt-6 inline-block">
               Continue shopping
