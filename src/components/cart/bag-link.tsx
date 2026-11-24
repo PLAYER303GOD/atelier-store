@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { connection } from "next/server";
 
 import { BagIcon } from "@/components/icons";
 import { buttonStyles } from "@/components/ui/button";
@@ -32,5 +33,6 @@ export function BagLinkView({ count }: { count: number }) {
  * static shell. Bag actions call refresh(), which re-renders this with the new count.
  */
 export async function BagLink() {
+  await connection();
   return <BagLinkView count={await getBagCount()} />;
 }
