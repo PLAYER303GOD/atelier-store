@@ -4,6 +4,8 @@ import { Suspense, ViewTransition } from "react";
 
 import { BagFeedback } from "@/components/cart/bag-feedback";
 import { BagLineControls } from "@/components/cart/bag-line-controls";
+import { CheckoutButton } from "@/components/cart/checkout-button";
+import { CheckoutCanceledNotice } from "@/components/cart/checkout-canceled-notice";
 import { ProductCard } from "@/components/product/product-card";
 import { StockStatus } from "@/components/product/stock-status";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
@@ -22,8 +24,9 @@ export const metadata: Metadata = { title: "Shopping bag — Atelier Store", rob
 /**
  * The shopping bag. Heading in the static shell; the bag (cookie + session, live prices and
  * stock) is read inside <Suspense>, with the site's skeleton slide-down / content slide-up.
+ * `?checkout=canceled&order=…` is where Stripe returns a customer who backed out of payment.
  */
-export default function BagPage() {
+export default function BagPage({ searchParams }: PageProps<"/bag">) {
   return (
     <div className="container-page pt-4 pb-section md:pt-6">
       <Breadcrumbs className="mb-6 md:mb-10" items={[{ label: "Home", href: "/" }, { label: "Shopping bag" }]} />
@@ -38,7 +41,7 @@ export default function BagPage() {
       >
         <ViewTransition enter="slide-up" default="none">
           <BagFeedback>
-            <BagContent />
+            <BagContent searchParams={searchParams} />
           </BagFeedback>
         </ViewTransition>
       </Suspense>
@@ -46,13 +49,17 @@ export default function BagPage() {
   );
 }
 
-async function BagContent() {
-  const bag = await getBag();
+async function BagContent({ searchParams }: Pick<PageProps<"/bag">, "searchParams">) {
+  const [bag, query] = await Promise.all([getBag(), searchParams]);
+  const canceledNotice = query.checkout === "canceled" && (
+    <CheckoutCanceledNotice reference={typeof query.order === "string" ? query.order : undefined} />
+  );
 
   if (bag.lines.length === 0) {
     const suggestions = await getNewArrivals(4);
     return (
       <>
+        {canceledNotice}
         <div className="flex flex-col items-center border-t pt-section pb-16 text-center md:pb-20">
           <p className="text-title">Your bag is empty</p>
           <p className="mt-3 max-w-sm text-body text-muted">Pieces you add will wait for you here.</p>
@@ -88,6 +95,7 @@ async function BagContent() {
 
   return (
     <>
+      {canceledNotice}
       {/* Above both columns, so the item list and the summary card start on the same line. */}
       <p className="mb-4 text-body-sm text-muted">
         {bag.itemCount} {bag.itemCount === 1 ? "piece" : "pieces"}
@@ -141,7 +149,9 @@ async function BagContent() {
                 )}
               </ul>
             )}
-            <p className="mt-6 border-t pt-6 text-body-sm text-muted">Checkout is coming soon.</p>
+            <div className="mt-6 border-t pt-6">
+              <CheckoutButton signature={bag.signature} blocked={unavailable > 0} />
+            </div>
             <TextLink href="/new-in" variant="cta" className="mt-6 inline-block">
               Continue shopping
             </TextLink>
