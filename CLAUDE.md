@@ -22,7 +22,7 @@ Next 16 has breaking changes vs. older versions — check `node_modules/next/dis
 
 No test framework is set up yet.
 
-Env vars live in `.env.local` (template: `.env.example`): `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`. `next build` needs `DATABASE_URL` set because `src/db/index.ts` throws at import if it's missing.
+Env vars live in `.env.local` (template: `.env.example`): `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `STRIPE_SECRET_KEY` (a sandbox restricted key `rk_…`; only checkout needs it), `APP_URL` (origin for Stripe's return URLs; falls back to `BETTER_AUTH_URL`). `next build` needs `DATABASE_URL` set because `src/db/index.ts` throws at import if it's missing.
 
 ## Architecture
 
@@ -45,6 +45,9 @@ Env vars live in `.env.local` (template: `.env.example`): `DATABASE_URL`, `BETTE
   - UI: `/bag`, `AddToBagButton` on the product page, and `BagLink` (header count, inside its own `<Suspense>` so the header stays static).
   - `BagFeedback` wraps the bag, list *and* empty state. After a remove, the line and its button are gone, so focus moves to its status notice ("… was removed · Undo", no auto-dismiss) instead of falling to `<body>`; Undo re-adds the same quantity through `addToBag`. Line controls announce only their own changes, and the quantity `<output>` is not a live region, because every line would re-announce on any change.
   - Follow-up: purge old guest carts (`user_id is null` and stale `updated_at`).
+- Checkout (Stripe-hosted Checkout, signed-in only): `src/lib/checkout-actions.ts` `startCheckout(signature)` closes the user's earlier pending checkout, re-reads the bag live (`toBag` in `cart.ts`, shared with the page), refuses on unavailable lines or a changed `bag.signature` (compared only, never priced from), then `createOrderWithHold` (`src/lib/order-store.ts`) creates the order, its price snapshot and the stock hold in one `db.batch` transaction. A shortfall trips `stocks_quantity_non_negative` (23514) and rolls back. The Checkout Session is built only from the order snapshot, with no `payment_method_types` and no `automatic_tax`. `releaseOrder` closes an open order *and* returns its stock in one statement (exactly once). Stripe config is resolved before anything is written.
+  - Return URLs: success → `/checkout/success?session_id=…`, which **only reads** (status from the DB; while pending it asks Stripe for wording only). Cancel → `/bag?checkout=canceled&order=…`, whose notice calls `cancelCheckout` to free the hold.
+  - **Not built yet:** the webhook (`/api/stripe/webhook`) that marks orders paid / failed / expired, clears the bag and records `stripe_events`. Until then orders stay `pending` and a hold is freed only by a new checkout or cancel.
 - `src/proxy.ts` — optimistic redirect to `/sign-in?next=…` for `/account/*` and `/admin/*` when there is no session cookie (no DB lookup). It is not the security check; `session.ts` is.
 - Account area: `/sign-in` and `/sign-up` (`AuthPage` + `AuthForm`, with the `AuthVisual` photo panel; links between them use the `auth-switch` transition type). `/account` has a static layout with `AccountNav` and pages that call `requireUser` inside `<Suspense>`: Overview and Personal details (name edit via `authClient.updateUser`). There's no order history yet. `/admin` is a read-only catalogue overview behind `requireAdmin`.
 - Auth tables are owned by the CLI, so they keep Better Auth's text ids and timestamps (exceptions to the DB conventions below), and `role` has no `check()`.
