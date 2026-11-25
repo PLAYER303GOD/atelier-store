@@ -206,5 +206,37 @@ export function productFormValuesFromFormData(form: FormData): ProductFormValues
   };
 }
 
+// ── Categories ──────────────────────────────────────────────────────────
+
+export const CATEGORY_LIMITS = { name: 60, slug: 60 } as const;
+
+/**
+ * Category pages live at the site root (/knitwear), so a category can't take the address of an
+ * existing page: Next would serve that page instead. Keep in step with the folders in src/app.
+ */
+export const RESERVED_CATEGORY_SLUGS = new Set([
+  "account", "admin", "api", "bag", "checkout", "client-services", "collections", "journal",
+  "new-in", "products", "saved", "search", "sign-in", "sign-up", "_next", "favicon-ico",
+]);
+
+export type CategoryFieldErrors = Partial<Record<"name" | "slug", string>>;
+
+export function validateCategory(input: { name: string; slug: string }):
+  | { data: { name: string; slug: string }; errors?: undefined }
+  | { data?: undefined; errors: CategoryFieldErrors } {
+  const errors: CategoryFieldErrors = {};
+  const name = input.name.trim();
+  const slug = input.slug.trim();
+  if (!name) errors.name = "Enter the category name.";
+  else if (name.length > CATEGORY_LIMITS.name) errors.name = `Use ${CATEGORY_LIMITS.name} characters or fewer.`;
+  if (!slug) errors.slug = "Enter the web address.";
+  else if (slug.length > CATEGORY_LIMITS.slug || !PRODUCT_SLUG_PATTERN.test(slug)) {
+    errors.slug = "Use lower-case letters, numbers and single hyphens, e.g. knitwear.";
+  } else if (RESERVED_CATEGORY_SLUGS.has(slug)) {
+    errors.slug = `/${slug} is already a page on the site. Choose another address.`;
+  }
+  return Object.keys(errors).length ? { errors } : { data: { name, slug } };
+}
+
 /** Cents → "1290.50" for the price field (no currency symbol, no grouping). */
 export const centsToPriceInput = (cents: number) => `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`;

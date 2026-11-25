@@ -378,6 +378,14 @@ export async function findOrderForUser(reference: string, userId: string): Promi
   );
 }
 
+/**
+ * Any order by reference, whoever it belongs to and whatever its status. Not for customer pages
+ * (use findOrderForUser): only admin code behind requireAdmin() calls this.
+ */
+export async function findOrderSummaryByReference(reference: string): Promise<OrderSummary | undefined> {
+  return loadOrderSummary(eq(orders.reference, reference));
+}
+
 async function loadOrderSummary(where: SQL | undefined): Promise<OrderSummary | undefined> {
   const [order] = await db.select().from(orders).where(where).limit(1);
   if (!order) return undefined;
