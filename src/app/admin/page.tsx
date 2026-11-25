@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Suspense } from "react";
+import { Suspense, ViewTransition } from "react";
 
+import { AdminHeader } from "@/components/admin/admin-page";
 import { StockStatus } from "@/components/product/stock-status";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { getStockOverview } from "@/lib/products";
@@ -10,21 +11,30 @@ import { requireAdmin } from "@/lib/session";
 export const metadata: Metadata = { title: "Admin — Atelier Store", robots: { index: false } };
 
 /**
- * Admin overview (read-only). requireAdmin(): signed out → sign-in, not an admin → 404.
- * Any admin write added later (Server Action / route handler) must call requireAdmin() itself.
+ * Admin overview (read-only). requireAdmin() inside <Suspense>: signed out → sign-in, not an
+ * admin → 404. Admin writes are Server Actions that call getAdminForAction() themselves.
  */
 export default function AdminPage() {
   return (
-    <div className="container-page pt-4 pb-section md:pt-6">
-      <Suspense fallback={<AdminSkeleton />}>
-        <AdminContent />
+    <>
+      <Breadcrumbs className="mb-6 md:mb-10" items={[{ label: "Home", href: "/" }, { label: "Admin" }]} />
+      <Suspense
+        fallback={
+          <ViewTransition exit="slide-down" default="none">
+            <AdminSkeleton />
+          </ViewTransition>
+        }
+      >
+        <ViewTransition enter="slide-up" default="none">
+          <AdminContent />
+        </ViewTransition>
       </Suspense>
-    </div>
+    </>
   );
 }
 
 async function AdminContent() {
-  const admin = await requireAdmin();
+  const admin = await requireAdmin("/admin");
   const overview = await getStockOverview();
   const stats = [
     { label: "Products", value: overview.products },
@@ -35,13 +45,7 @@ async function AdminContent() {
 
   return (
     <>
-      <Breadcrumbs
-        className="mb-6 md:mb-10"
-        items={[{ label: "Home", href: "/" }, { label: "My account", href: "/account" }, { label: "Admin" }]}
-      />
-      <p className="mb-2 text-caption text-muted uppercase">Admin</p>
-      <h1 className="mb-2 text-display-sm">Catalogue overview</h1>
-      <p className="mb-8 text-body text-muted md:mb-10">Signed in as {admin.email}.</p>
+      <AdminHeader title="Catalogue overview" intro={`Signed in as ${admin.email}.`} />
 
       <dl className="grid grid-cols-2 gap-px border border-line bg-line md:grid-cols-4">
         {stats.map((stat) => (
@@ -97,7 +101,6 @@ async function AdminContent() {
 function AdminSkeleton() {
   return (
     <div aria-busy="true" aria-label="Loading admin overview">
-      <div className="mb-6 h-4 w-48 bg-surface md:mb-10" />
       <div className="mb-2 h-3 w-16 bg-surface" />
       <div className="mb-8 h-9 w-72 bg-surface md:mb-10" />
       <div className="grid grid-cols-2 gap-px bg-line md:grid-cols-4">

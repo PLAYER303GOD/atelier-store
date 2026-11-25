@@ -70,12 +70,31 @@ export async function requireUser(returnTo: string): Promise<CurrentUser> {
 }
 
 /**
- * An admin. Signed-out visitors go to sign-in; signed-in non-admins get a 404, so admin
- * routes don't reveal they exist. Every admin Server Action / route handler must call this
- * itself rather than trust the page that rendered it.
+ * An admin, for pages. Signed-out visitors go to sign-in; signed-in non-admins get a 404, so
+ * admin routes don't reveal they exist. Every admin page calls this inside its <Suspense>
+ * (enforced by `pnpm check:admin`).
  */
 export async function requireAdmin(returnTo = "/admin"): Promise<CurrentUser> {
   const user = await requireUser(returnTo);
   if (user.role !== "admin") notFound();
   return user;
 }
+
+/**
+ * The signed-in admin, or null, for Server Actions and route handlers. Read fresh on every call
+ * (a demoted admin loses access at once). It never redirects or throws, so an action can return
+ * its own refusal. Server Actions are public POST endpoints that anyone can call directly, so
+ * hiding admin UI protects nothing. Every admin action starts with:
+ *
+ *   const admin = await getAdminForAction();
+ *   if (!admin) return ADMIN_FORBIDDEN;
+ *
+ * (enforced by `pnpm check:admin`).
+ */
+export async function getAdminForAction(): Promise<CurrentUser | null> {
+  const user = await getSignedInUser();
+  return user?.role === "admin" ? user : null;
+}
+
+/** What an admin action returns to a caller who isn't a signed-in admin. */
+export const ADMIN_FORBIDDEN = { ok: false, error: "You don't have permission to do that." } as const;
