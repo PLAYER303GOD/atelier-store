@@ -1,4 +1,4 @@
-"use server";
+﻿"use server";
 
 // Admin category writes. Each starts with the admin check (`pnpm check:admin` enforces it),
 // validates on the server, lets the database enforce the rest (unique slug; a category in use
@@ -82,6 +82,10 @@ export async function renameCategory(slug: string, name: string): Promise<Catego
   return { ok: true };
 }
 
+// Hidden products still belong to their category, so hiding them doesn't free it: only moving does.
+const inUseMessage = (count: number) =>
+  `${count} ${count === 1 ? "product uses" : "products use"} this category (hidden ones included). Move ${count === 1 ? "it" : "them"} to another category first.`;
+
 /** Deletes a category only while no product uses it (checked in the same statement, and by the FK). */
 export async function deleteCategory(slug: string): Promise<CategoryActionResult> {
   const admin = await getAdminForAction();
@@ -107,12 +111,12 @@ export async function deleteCategory(slug: string): Promise<CategoryActionResult
     if (rows.length === 0) {
       const count = await inUse();
       if (count === undefined) return { ok: false, error: "This category no longer exists." };
-      return { ok: false, error: `${count} ${count === 1 ? "product uses" : "products use"} this category. Move or hide them first.` };
+      return { ok: false, error: inUseMessage(count) };
     }
   } catch (error) {
     if (pgError(error).code === "23001") {
       const count = (await inUse()) ?? 0;
-      return { ok: false, error: `${count} ${count === 1 ? "product uses" : "products use"} this category. Move or hide them first.` };
+      return { ok: false, error: inUseMessage(count) };
     }
     console.error("deleteCategory failed", error);
     return { ok: false, error: "We couldn't delete the category. Please try again." };

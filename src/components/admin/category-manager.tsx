@@ -132,7 +132,14 @@ export function CategoryRowActions({ category }: { category: AdminCategoryRow })
     if (pending) return;
     setResult(null);
     startTransition(async () => {
-      const outcome = await action();
+      let outcome: CategoryActionResult;
+      try {
+        outcome = await action();
+      } catch {
+        // The request itself failed (network, server). It may or may not have been applied, so
+        // never retry automatically: keep the draft and let the admin check and try again.
+        outcome = { ok: false, error: "We couldn't reach the server. Check the list, then try again." };
+      }
       setResult(outcome);
       if (outcome.ok) {
         setMode("idle");
@@ -199,7 +206,7 @@ export function CategoryRowActions({ category }: { category: AdminCategoryRow })
         </>
       ) : (
         <>
-          <button type="button" onClick={() => { setMode("rename"); setResult(null); }} className={actionClass}>
+          <button type="button" onClick={() => { setName(category.name); setMode("rename"); setResult(null); }} className={actionClass}>
             Rename<span className="sr-only"> {category.name}</span>
           </button>
           <button
@@ -211,7 +218,7 @@ export function CategoryRowActions({ category }: { category: AdminCategoryRow })
               setResult(null);
             }}
             aria-disabled={inUse || undefined}
-            title={inUse ? "Move or hide its products first" : undefined}
+            title={inUse ? "Move its products to another category first" : undefined}
             className={actionClass}
           >
             Delete<span className="sr-only"> {category.name}</span>
