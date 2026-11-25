@@ -162,30 +162,46 @@ export async function adjustProductStock(slug: string, delta: number): Promise<S
     return { ok: false, error: "Enter a whole number between -1000 and 1000, other than 0." };
   }
 
+  const current = async () => {
+    const [row] = await db
+      .select({ quantity: sql<number>`coalesce(${stocks.quantity}, 0)`.mapWith(Number) })
+      .from(products)
+      .leftJoin(stocks, eq(stocks.productId, products.id))
+      .where(eq(products.slug, slug))
+      .limit(1);
+    return row?.quantity;
+  };
+  const tooFew = (available: number): StockAdjustResult => ({ ok: false, error: `Only ${available} available to remove.` });
+
   try {
-    const result = await db.execute<{ quantity: number }>(sql`
-      insert into ${stocks} (product_id, quantity)
-      select ${products.id}, ${delta} from ${products} where ${products.slug} = ${slug}
-      on conflict (product_id) do update
-        set quantity = ${stocks.quantity} + excluded.quantity, updated_at = now()
-      returning quantity
-    `);
+    // Removing: a plain atomic UPDATE. (An upsert can't be used here: Postgres checks the >= 0
+    // constraint on the proposed negative row before resolving the conflict, so it always fails.)
+    // Adding: an upsert, so a product without a stock row gets one.
+    const result =
+      delta < 0
+        ? await db.execute<{ quantity: number }>(sql`
+            update ${stocks} set quantity = ${stocks.quantity} + ${delta}, updated_at = now()
+            where ${stocks.productId} = (select ${products.id} from ${products} where ${products.slug} = ${slug})
+            returning quantity
+          `)
+        : await db.execute<{ quantity: number }>(sql`
+            insert into ${stocks} (product_id, quantity)
+            select ${products.id}, ${delta} from ${products} where ${products.slug} = ${slug}
+            on conflict (product_id) do update
+              set quantity = ${stocks.quantity} + excluded.quantity, updated_at = now()
+            returning quantity
+          `);
     const row = result.rows[0];
-    if (!row) return { ok: false, error: "This product no longer exists." };
+    if (!row) {
+      const available = await current();
+      if (available === undefined) return { ok: false, error: "This product no longer exists." };
+      return tooFew(available); // removing from a product with no stock row (0)
+    }
     updateTag("products");
     refresh();
     return { ok: true, stock: Number(row.quantity) };
   } catch (error) {
-    if (pgError(error).code === "23514") {
-      const [current] = await db
-        .select({ quantity: sql<number>`coalesce(${stocks.quantity}, 0)`.mapWith(Number) })
-        .from(products)
-        .leftJoin(stocks, eq(stocks.productId, products.id))
-        .where(eq(products.slug, slug))
-        .limit(1);
-      const available = current?.quantity ?? 0;
-      return { ok: false, error: `Only ${available} available to remove.` };
-    }
+    if (pgError(error).code === "23514") return tooFew((await current()) ?? 0);
     console.error("adjustProductStock failed", error);
     return { ok: false, error: "We couldn't update the stock. Please try again." };
   }
