@@ -4,12 +4,11 @@ import { notFound } from "next/navigation";
 import { type ReactNode, Suspense, ViewTransition } from "react";
 
 import { AwaitConfirmation } from "@/components/checkout/await-confirmation";
+import { OrderLineList, OrderReference, OrderSummaryCard } from "@/components/order/order-details";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { buttonStyles } from "@/components/ui/button";
 import { MediaFrame } from "@/components/ui/media-frame";
-import { SmoothImage } from "@/components/ui/smooth-image";
 import { TextLink } from "@/components/ui/text-link";
-import { formatPrice } from "@/lib/catalog";
 import { findOrderBySession, type OrderSummary } from "@/lib/order-store";
 import { requireUser } from "@/lib/session";
 import { getStripe, isMissingResource } from "@/lib/stripe";
@@ -68,84 +67,10 @@ async function OrderContent({ searchParams }: Pick<PageProps<"/checkout/success"
       </header>
 
       <div className="grid grid-cols-1 gap-y-10 lg:grid-cols-12 lg:gap-x-gutter">
-        <section aria-labelledby="order-items-title" className="min-w-0 lg:col-span-8">
-          <h2 id="order-items-title" className="sr-only">
-            Items
-          </h2>
-          <ul role="list" className="border-t">
-            {order.lines.map((line) => (
-              <li
-                key={line.slug}
-                className="grid grid-cols-[6rem_minmax(0,1fr)] gap-4 border-b py-6 sm:grid-cols-[8rem_minmax(0,1fr)] sm:gap-6"
-              >
-                <MediaFrame ratio="product">
-                  <SmoothImage src={line.image.src} alt="" fill sizes="(min-width: 640px) 128px, 96px" className="object-cover" />
-                </MediaFrame>
-                <div className="flex min-w-0 items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <h3 className="text-body">
-                      <Link href={`/products/${line.slug}`} className="underline-offset-4 hover:underline">
-                        {line.name}
-                      </Link>
-                    </h3>
-                    <p className="mt-1 text-body-sm text-muted">
-                      {line.colour} · {formatPrice(line.unitPriceCents)}
-                      {line.quantity > 1 && " each"}
-                    </p>
-                    <p className="mt-1 text-body-sm text-muted">Quantity {line.quantity}</p>
-                  </div>
-                  <p className="shrink-0 text-body tabular-nums">{formatPrice(line.unitPriceCents * line.quantity)}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <aside aria-labelledby="order-summary-title" className="lg:col-span-4">
-          <div className="border border-line p-6 md:p-8">
-            <h2 id="order-summary-title" className="mb-6 text-title">
-              Summary
-            </h2>
-            <dl className="space-y-3 text-body-sm">
-              <div className="flex justify-between gap-4">
-                <dt className="text-muted">Order</dt>
-                <dd className="tabular-nums">{order.reference}</dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-muted">Subtotal</dt>
-                <dd className="tabular-nums">{formatPrice(order.totalCents)}</dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-muted">Shipping</dt>
-                <dd>Complimentary</dd>
-              </div>
-            </dl>
-            <div className="mt-6 flex items-baseline justify-between gap-4 border-t pt-6">
-              <p className="text-label font-medium uppercase">Total</p>
-              <p className="text-title tabular-nums">{formatPrice(order.totalCents)}</p>
-            </div>
-            {order.shipping && (
-              <div className="mt-6 border-t pt-6 text-body-sm">
-                <p className="mb-2 text-label font-medium uppercase">Delivering to</p>
-                <address className="text-muted not-italic">
-                  {order.shipping.name}
-                  <br />
-                  {order.shipping.address.line1}
-                  {order.shipping.address.line2 && (
-                    <>
-                      <br />
-                      {order.shipping.address.line2}
-                    </>
-                  )}
-                  <br />
-                  {order.shipping.address.city}
-                  {order.shipping.address.state && `, ${order.shipping.address.state}`} {order.shipping.address.postalCode}
-                </address>
-              </div>
-            )}
-            <div className="mt-6 flex flex-col gap-4">{view.actions}</div>
-          </div>
-        </aside>
+        <div className="min-w-0 lg:col-span-8">
+          <OrderLineList lines={order.lines} />
+        </div>
+        <OrderSummaryCard order={order} actions={view.actions} className="lg:col-span-4" />
       </div>
     </>
   );
@@ -153,8 +78,7 @@ async function OrderContent({ searchParams }: Pick<PageProps<"/checkout/success"
 
 /** Heading, intro and next step for each order status. Never writes anything. */
 async function viewFor(order: OrderSummary, sessionId: string, email: string): Promise<View> {
-  // Kept on one line: customers quote it, and it would otherwise break at its hyphen.
-  const reference = <span className="whitespace-nowrap">{order.reference}</span>;
+  const reference = <OrderReference>{order.reference}</OrderReference>;
   const continueShopping = (
     <TextLink href="/new-in" variant="cta" className="self-start">
       Continue shopping
