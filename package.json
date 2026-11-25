@@ -17,8 +17,8 @@
     "auth:make-admin": "tsx --env-file=.env.local src/db/make-admin.ts",
     "orders:release-expired": "tsx --env-file=.env.local src/db/release-expired-orders.ts",
     "check:admin": "node scripts/check-admin-guards.mjs",
-    "stripe:listen": "node --env-file-if-exists=.env.local scripts/stripe-dev.mjs listen",
-    "stripe:replay": "node --env-file-if-exists=.env.local scripts/stripe-dev.mjs replay"
+    "stripe:listen": "node scripts/stripe-dev.mjs listen",
+    "stripe:replay": "node scripts/stripe-dev.mjs replay"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.1",

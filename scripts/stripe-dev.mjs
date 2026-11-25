@@ -8,13 +8,21 @@
 // The webhook's own outcome per event ("AT-… paid", "ignored: …") is logged by the dev server
 // (src/app/api/stripe/webhook/route.ts), in the `pnpm dev` terminal.
 
-import { execSync, spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 
 import Stripe from "stripe";
 
-const BASE = (process.env.APP_URL ?? process.env.BETTER_AUTH_URL ?? "http://localhost:3001").replace(/\/+$/, "");
-const WEBHOOK_URL = `${BASE}/api/stripe/webhook`;
+// .env.local is optional here (APP_URL / BETTER_AUTH_URL); loaded in-process so any Node with
+// process.loadEnvFile (20.12+) works, without the newer --env-file-if-exists flag.
+try {
+  process.loadEnvFile?.(".env.local");
+} catch {
+  // no .env.local: fall back to the default URL below
+}
+
 /** Exactly the events the webhook handles (HANDLED_EVENTS in src/lib/stripe-webhook.ts). */
 const EVENTS = [
   "checkout.session.completed",
@@ -22,6 +30,8 @@ const EVENTS = [
   "checkout.session.async_payment_failed",
   "checkout.session.expired",
 ];
+/** Bounds a whole delivery, response body included. */
+const DELIVERY_TIMEOUT_MS = 15_000;
 
 const color = (code) => (text) => (process.stdout.isTTY ? `\x1b[${code}m${text}\x1b[0m` : text);
 const green = color(32);
@@ -31,88 +41,161 @@ const bold = color(1);
 const time = () => new Date().toLocaleTimeString();
 const say = (line) => console.log(`${dim(time())}  ${line}`);
 
-/** Runs a Stripe CLI command and returns its output (the CLI prints banner lines before JSON). */
-function stripeCli(args) {
-  return execSync(`stripe ${args}`, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+/**
+ * Where events go. Signed payloads must not travel in clear text: HTTPS, except plain HTTP to this
+ * machine for local development. Checked before anything is sent.
+ */
+function webhookUrl() {
+  const raw = process.env.APP_URL ?? process.env.BETTER_AUTH_URL ?? "http://localhost:3001";
+  let url;
+  try {
+    url = new URL("/api/stripe/webhook", raw);
+  } catch {
+    throw new Error(`APP_URL / BETTER_AUTH_URL isn't a valid URL: ${raw}`);
+  }
+  const loopback = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(url.hostname);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+    throw new Error(`Refusing to send signed webhooks to ${url.origin}: use https (plain http only for localhost).`);
+  }
+  return url.toString();
 }
 
+/**
+ * The Stripe CLI as an executable we can run with separate arguments and no shell, so arguments
+ * keep their boundaries and stopping the child stops Stripe itself. On Windows the npm install is
+ * a .cmd shim around a native stripe.exe, which we locate instead.
+ */
+function stripeExecutable() {
+  if (process.platform !== "win32") return "stripe";
+  let found = [];
+  try {
+    found = execFileSync("where.exe", ["stripe"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  } catch {
+    // not on PATH
+  }
+  const exe = found.find((path) => path.toLowerCase().endsWith(".exe"));
+  if (exe) return exe;
+  for (const shim of found) {
+    for (const arch of ["x64", "arm64", "ia32"]) {
+      const pkg = join("@stripe", `cli-win32-${arch}`, "bin", "stripe.exe");
+      for (const candidate of [
+        join(dirname(shim), "node_modules", "@stripe", "cli", "node_modules", pkg),
+        join(dirname(shim), "node_modules", pkg),
+      ]) {
+        if (existsSync(candidate)) return candidate;
+      }
+    }
+  }
+  throw new Error("Couldn't find the Stripe CLI executable. Install it (npm i -g @stripe/cli) and run: stripe login");
+}
+
+/** Runs the Stripe CLI and returns its output (it prints banner lines before JSON). */
+function stripeCli(exe, args) {
+  return execFileSync(exe, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: plainEnv() });
+}
+
+/** Ask the CLI for plain text: no colours or terminal hyperlinks in what we parse. */
+const plainEnv = () => ({ ...process.env, NO_COLOR: "1", FORCE_COLOR: "0", TERM: "dumb" });
+
+/** Strips ANSI colours and OSC 8 hyperlinks, in case the CLI emits them anyway. */
+const plain = (text) =>
+  text
+    .replace(/\x1b\]8;[^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
+
 /** The signing secret this machine's `stripe listen` uses (stable per device and account). */
-function listenSecret() {
+function listenSecret(exe) {
   let out;
   try {
-    out = stripeCli("listen --print-secret");
+    out = stripeCli(exe, ["listen", "--print-secret"]);
   } catch (error) {
-    throw new Error(`The Stripe CLI couldn't give a webhook secret. Is it installed and logged in? Run: stripe login\n${error.stderr ?? ""}`);
+    throw new Error(`The Stripe CLI couldn't give a webhook secret. Is it logged in? Run: stripe login\n${error.stderr ?? ""}`);
   }
-  const secret = out.match(/whsec_[A-Za-z0-9]+/)?.[0];
+  const secret = plain(out).match(/whsec_[A-Za-z0-9]+/)?.[0];
   if (!secret) throw new Error("No whsec_ secret in `stripe listen --print-secret` output. Run: stripe login");
   return secret;
 }
 
-/** POSTs a payload to the webhook, signed with `secret` exactly as Stripe signs it. */
-async function deliver(payload, secret) {
+/**
+ * POSTs a payload to the webhook, signed exactly as Stripe signs it. Never follows a redirect (a
+ * signed event must only count as delivered by the configured endpoint itself), and the deadline
+ * covers reading the response body too.
+ */
+async function deliver(url, payload, secret) {
   const signature = Stripe.webhooks.generateTestHeaderString({ payload, secret });
-  const res = await fetch(WEBHOOK_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json", "stripe-signature": signature },
-    body: payload,
-  });
-  return { status: res.status, body: await res.text() };
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "stripe-signature": signature },
+      body: payload,
+      redirect: "manual",
+      signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
+    });
+    return { kind: "answered", status: res.status, body: await res.text() };
+  } catch (error) {
+    if (error?.name === "TimeoutError") return { kind: "timeout" };
+    return { kind: "unreachable" };
+  }
 }
 
-/** What a failed delivery most likely means, and what to do. */
-function explain(status, body) {
+/** What a delivery result most likely means, and what to do. */
+function explain(result, url) {
+  if (result.kind === "timeout") {
+    return `No answer from ${url} within ${DELIVERY_TIMEOUT_MS / 1000}s. The dev server may be busy compiling; check the \`pnpm dev\` terminal.`;
+  }
+  if (result.kind === "unreachable") return `Can't reach ${url}. Start the app with \`pnpm dev\`.`;
+  const { status, body } = result;
   if (status === 400 && body.includes("Invalid signature")) {
-    return "STRIPE_WEBHOOK_SECRET in .env.local doesn't match this listener. Set it to the secret shown above, then restart `pnpm dev`.";
+    return "STRIPE_WEBHOOK_SECRET in .env.local doesn't match this listener. Run `stripe listen --print-secret`, copy the full whsec_… value into .env.local as STRIPE_WEBHOOK_SECRET, then restart `pnpm dev`.";
   }
   if (status === 500 && body.includes("not configured")) {
     return "The dev server has no STRIPE_WEBHOOK_SECRET / STRIPE_SECRET_KEY. Add them to .env.local and restart `pnpm dev`.";
   }
+  if (status >= 300 && status < 400) return `The endpoint redirected (${status}) instead of answering. Check APP_URL / BETTER_AUTH_URL.`;
   if (status >= 500) return "The webhook failed. See the error in the `pnpm dev` terminal (it may also have been recompiling).";
-  if (status === 404) return `Nothing at ${WEBHOOK_URL}. Is APP_URL / BETTER_AUTH_URL right?`;
+  if (status === 404) return `Nothing at ${url}. Is APP_URL / BETTER_AUTH_URL right?`;
   return `Unexpected answer ${status}: ${body.slice(0, 120)}`;
 }
 
 /** One signed, harmless event (a type the webhook ignores) to prove reachability and the secret. */
-async function preflight(secret) {
+async function preflight(url, secret) {
   const payload = JSON.stringify({ id: `evt_preflight_${Date.now()}`, object: "event", type: "atelier.preflight", data: { object: {} } });
-  try {
-    const { status, body } = await deliver(payload, secret);
-    if (status === 200) {
-      say(green("✓ Webhook reachable and its signing secret matches this listener."));
-      return true;
-    }
-    say(red(`✗ Setup problem: ${explain(status, body)}`));
-  } catch {
-    say(red(`✗ Can't reach ${WEBHOOK_URL}. Start the app with \`pnpm dev\` (port 3001). Events received meanwhile will fail.`));
+  const result = await deliver(url, payload, secret);
+  if (result.kind === "answered" && result.status === 200) {
+    say(green("✓ Webhook reachable and its signing secret matches this listener."));
+    return;
   }
-  return false;
+  say(red(`✗ Setup problem: ${explain(result, url)} Events received meanwhile will fail.`));
 }
 
 async function listen() {
-  const secret = listenSecret();
+  const url = webhookUrl();
+  const exe = stripeExecutable();
+  const secret = listenSecret(exe);
   console.log(bold("Stripe → local webhook"));
-  say(`Forwarding ${EVENTS.length} Checkout events to ${WEBHOOK_URL}`);
+  say(`Forwarding ${EVENTS.length} Checkout events to ${url}`);
+  // Only a prefix: the full secret stays out of logs (`stripe listen --print-secret` shows it).
   say(dim(`Listener secret: ${secret.slice(0, 11)}…  (STRIPE_WEBHOOK_SECRET in .env.local must be this)`));
-  await preflight(secret);
+  await preflight(url, secret);
 
-  // One command string (fixed values only): the CLI is a shell shim on Windows, and Node deprecates
-  // passing an args array together with `shell`.
-  const child = spawn(`stripe listen --forward-to ${WEBHOOK_URL} --events ${EVENTS.join(",")}`, {
-    shell: true,
+  // The executable itself, arguments kept separate, no shell: stopping the child stops Stripe.
+  const child = spawn(exe, ["listen", "--forward-to", url, "--events", EVENTS.join(",")], {
+    shell: false,
     stdio: ["ignore", "pipe", "pipe"],
+    env: plainEnv(),
   });
-  let lastEvent = null;
   let delivered = 0;
   let failed = 0;
 
   const onLine = (raw) => {
-    const line = raw.trim();
+    const line = plain(raw).trim();
     if (!line || line.includes("claude-code-hint")) return;
     const received = line.match(/-->\s+(\S+)\s+\[(evt_\w+)\]/);
     const answered = line.match(/<--\s+\[(\d{3})\]\s+\S+\s+\S+\s+\[(evt_\w+)\]/);
     if (received) {
-      lastEvent = received[2];
       say(`→ ${bold(received[1])} ${dim(received[2])}`);
     } else if (answered) {
       const [, code, evt] = answered;
@@ -121,39 +204,53 @@ async function listen() {
         say(green(`  ✓ delivered (${code}) ${dim(evt)}  → outcome in the \`pnpm dev\` terminal`));
       } else {
         failed++;
-        say(red(`  ✗ NOT delivered (${code}) ${evt}`));
-        say(red(`    The order was not updated. Fix the cause, then resend: ${bold(`pnpm stripe:replay ${evt}`)}`));
+        say(red(`  ✗ The webhook answered ${code} for ${evt}. Check the \`pnpm dev\` terminal for what happened.`));
+        say(red(`    If the order wasn't updated, fix the cause, then resend: ${bold(`pnpm stripe:replay ${evt}`)}`));
       }
     } else if (/Ready!/.test(line)) {
       say(green("✓ Listening. Make a test payment; each event shows up here."));
     } else if (/error|failed/i.test(line)) {
       failed++;
       say(red(`✗ ${line}`));
-      const unreachable = /connect|refused|dial tcp|timeout/i.test(line);
-      if (unreachable) say(red(`    The dev server didn't answer at ${WEBHOOK_URL}. Is \`pnpm dev\` running?`));
-      if (lastEvent) say(red(`    Once fixed, resend: ${bold(`pnpm stripe:replay ${lastEvent}`)}`));
+      if (/connect|refused|dial tcp|timeout/i.test(line)) say(red(`    The dev server didn't answer at ${url}. Is \`pnpm dev\` running?`));
+      // Only name an event when this very line does; concurrent deliveries make "the last one" a guess.
+      const evt = line.match(/\b(evt_\w+)\b/)?.[1];
+      say(
+        red(
+          evt
+            ? `    Once fixed, resend: ${bold(`pnpm stripe:replay ${evt}`)}`
+            : `    Once fixed, find the failed event (${bold("stripe events list --limit 5")}) and resend it with ${bold("pnpm stripe:replay <evt_id>")}`,
+        ),
+      );
     } else {
       say(dim(line));
     }
   };
-  createInterface({ input: child.stdout }).on("line", onLine);
-  createInterface({ input: child.stderr }).on("line", onLine);
+  const readers = [createInterface({ input: child.stdout }), createInterface({ input: child.stderr })];
+  for (const reader of readers) reader.on("line", onLine);
 
   const stop = () => child.kill();
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
-  child.on("exit", (code) => {
-    say(`Listener stopped (${code ?? "signal"}). Delivered ${delivered}, failed ${failed}.`);
-    process.exit(code ?? 0);
+  child.on("error", (error) => {
+    say(red(`✗ Couldn't start the Stripe CLI: ${error.message}`));
+    process.exitCode = 1;
+  });
+  // `close` fires after the child's output streams have ended, so every line above is printed first.
+  child.on("close", (code, signal) => {
+    say(`Listener stopped (${code ?? signal ?? "signal"}). Delivered ${delivered}, failed ${failed}.`);
+    process.exitCode = code ?? 0;
   });
 }
 
 async function replay(eventId) {
   if (!/^evt_\w+$/.test(eventId ?? "")) throw new Error("Usage: pnpm stripe:replay evt_…");
-  const secret = listenSecret();
+  const url = webhookUrl();
+  const exe = stripeExecutable();
+  const secret = listenSecret(exe);
   let out;
   try {
-    out = stripeCli(`events retrieve ${eventId}`);
+    out = plain(stripeCli(exe, ["events", "retrieve", eventId]));
   } catch (error) {
     throw new Error(`Stripe couldn't find ${eventId} in the account the CLI is logged into.\n${error.stderr ?? ""}`);
   }
@@ -161,18 +258,12 @@ async function replay(eventId) {
   const event = JSON.parse(payload);
   if (event.error) throw new Error(`Stripe: ${event.error.message}`);
   const order = event.data?.object?.metadata?.order_reference;
-  say(`Resending ${bold(event.type)} ${dim(event.id)}${order ? ` for order ${bold(order)}` : ""} to ${WEBHOOK_URL}`);
-  let result;
-  try {
-    result = await deliver(payload, secret);
-  } catch {
-    throw new Error(`Can't reach ${WEBHOOK_URL}. Start the app with \`pnpm dev\`.`);
-  }
-  const { status, body } = result;
-  if (status === 200) {
-    say(green(body.includes("duplicate") ? "✓ Already processed earlier; nothing changed." : "✓ Delivered. See the `pnpm dev` terminal for what it did to the order."));
+  say(`Resending ${bold(event.type)} ${dim(event.id)}${order ? ` for order ${bold(order)}` : ""} to ${url}`);
+  const result = await deliver(url, payload, secret);
+  if (result.kind === "answered" && result.status === 200) {
+    say(green(result.body.includes("duplicate") ? "✓ Already processed earlier; nothing changed." : "✓ Delivered. See the `pnpm dev` terminal for what it did to the order."));
   } else {
-    say(red(`✗ Not delivered (${status}). ${explain(status, body)}`));
+    say(red(`✗ Not delivered. ${explain(result, url)}`));
     process.exitCode = 1;
   }
 }
@@ -184,5 +275,5 @@ try {
   else throw new Error("Usage: node scripts/stripe-dev.mjs listen | replay <evt_id>");
 } catch (error) {
   console.error(red(`✗ ${error.message}`));
-  process.exit(1);
+  process.exitCode = 1;
 }
