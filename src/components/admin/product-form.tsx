@@ -21,7 +21,7 @@ type ProductFormProps = {
   mode: "create" | "edit";
   categories: { slug: string; name: string }[];
   initial: ProductFormValues;
-  /** Edit only: the version this form was loaded from (sent back for the stale-save check). */
+  /** Edit only: the version this form was loaded from (sent back for the stale-save check). Read once. */
   updatedAt?: string;
 };
 
@@ -47,6 +47,11 @@ export function ProductForm({ mode, categories, initial, updatedAt }: ProductFor
   const formRef = useRef<HTMLFormElement>(null);
   const alertRef = useRef<HTMLDivElement>(null);
 
+  // The version this draft is based on. It only moves forward when *this* draft saves: a page
+  // refresh (e.g. from the stock adjuster) can bring a newer `updatedAt` prop from someone else's
+  // save, and adopting it would let this older draft overwrite their changes unnoticed.
+  const [baseline, setBaseline] = useState(updatedAt);
+
   // A new server result: keep its field errors until those fields change; show "Saved".
   // (Adjusted during render when the result changes, not in an effect.)
   const [seenState, setSeenState] = useState(state);
@@ -54,6 +59,7 @@ export function ProductForm({ mode, categories, initial, updatedAt }: ProductFor
     setSeenState(state);
     setServerErrors(state.errors ?? {});
     setSavedNote(state.status === "saved");
+    if (state.status === "saved" && state.updatedAt) setBaseline(state.updatedAt);
   }
   // A form-level error (no field to point at) takes focus so it's read out.
   useEffect(() => {
@@ -123,7 +129,7 @@ export function ProductForm({ mode, categories, initial, updatedAt }: ProductFor
           </p>
         )}
       </div>
-      {mode === "edit" && <input type="hidden" name="updatedAt" value={state.updatedAt ?? updatedAt} />}
+      {mode === "edit" && <input type="hidden" name="updatedAt" value={baseline} />}
 
       <Section title="Details">
         <TextField label="Name" type="text" autoComplete="off" maxLength={PRODUCT_LIMITS.name} {...field("name")} onChange={(e) => set("name", e.target.value)} />
