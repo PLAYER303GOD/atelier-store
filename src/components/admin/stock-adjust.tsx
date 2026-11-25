@@ -6,6 +6,65 @@ import { Button } from "@/components/ui/button";
 import { TextField } from "@/components/ui/text-field";
 import { adjustProductStock, type StockAdjustResult } from "@/lib/admin-product-actions";
 
+/**
+ * Compact "Adjust by" for a table row (/admin/stock): a short field and Apply, with the result
+ * or error underneath. Same action and rules as StockAdjust.
+ */
+export function StockAdjustInline({ slug, name }: { slug: string; name: string }) {
+  const [value, setValue] = useState("");
+  const [pending, startTransition] = useTransition();
+  const [result, setResult] = useState<StockAdjustResult | { ok: false; error: string } | null>(null);
+
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending) return;
+    const delta = parseDelta(value);
+    if (delta === null) {
+      setResult({ ok: false, error: "Enter a whole number like 5 or -1, not 0." });
+      return;
+    }
+    setResult(null);
+    startTransition(async () => {
+      const outcome = await adjustProductStock(slug, delta);
+      setResult(outcome);
+      if (outcome.ok) setValue("");
+    });
+  }
+
+  return (
+    <form onSubmit={onSubmit} noValidate aria-busy={pending}>
+      <div className="flex items-center gap-3">
+        <input
+          type="text"
+          inputMode="numeric"
+          autoComplete="off"
+          value={value}
+          readOnly={pending}
+          onChange={(event) => {
+            setValue(event.target.value);
+            setResult(null);
+          }}
+          aria-label={`Adjust stock of ${name} by`}
+          aria-invalid={result && !result.ok ? true : undefined}
+          placeholder="+5 / -1"
+          className={`h-10 w-20 border-b bg-transparent text-body-sm tabular-nums outline-none transition-colors duration-200 placeholder:text-subtle focus-visible:border-ink ${result && !result.ok ? "border-error" : "border-line hover:border-muted"}`}
+        />
+        <button
+          type="submit"
+          aria-disabled={pending || undefined}
+          className="text-label font-medium uppercase underline underline-offset-4 hover:decoration-transparent aria-disabled:pointer-events-none aria-disabled:text-subtle"
+        >
+          {pending ? "Applying…" : "Apply"}
+          <span className="sr-only"> to {name}</span>
+        </button>
+      </div>
+      <p aria-live="polite" className={`mt-1 text-caption ${result?.ok ? "text-success" : "text-error"} empty:hidden`}>
+        {result && (result.ok ? `✓ Now ${result.stock}` : result.error)}
+      </p>
+    </form>
+  );
+}
+
 const parseDelta = (text: string): number | null => {
   const clean = text.trim().replace(/^\+/, "");
   if (!/^-?\d{1,4}$/.test(clean)) return null;
