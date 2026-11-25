@@ -20,6 +20,7 @@ import {
   findGuestCartId,
   findProductForCart,
   findProductIdForRemoval,
+  findUserCartId,
   getLineQuantity,
   getOrCreateUserCartId,
   MAX_PER_LINE,
@@ -108,11 +109,20 @@ export async function updateBagQuantity(slug: string, quantity: number): Promise
   }
 }
 
+/** The caller's existing cart, without creating one (nothing to remove from otherwise). */
+async function existingCartId(): Promise<number | undefined> {
+  const user = await getSignedInUser();
+  if (user) return findUserCartId(user.id);
+  const token = (await cookies()).get(CART_COOKIE)?.value;
+  return token ? findGuestCartId(token) : undefined;
+}
+
+/** Removes a line from the caller's own existing bag; hidden products can be removed too. */
 export async function removeFromBag(slug: string): Promise<BagActionResult> {
   if (!validSlug(slug)) return fail("That isn't a valid request.");
   try {
-    const productId = await findProductIdForRemoval(slug);
-    if (productId !== undefined) await deleteLine(await cartIdForWrite(), productId);
+    const [productId, cartId] = await Promise.all([findProductIdForRemoval(slug), existingCartId()]);
+    if (productId !== undefined && cartId !== undefined) await deleteLine(cartId, productId);
     refresh();
     return { ok: true, quantity: 0, available: 0, limited: false };
   } catch (error) {
