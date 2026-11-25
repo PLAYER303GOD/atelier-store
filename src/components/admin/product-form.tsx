@@ -2,6 +2,7 @@
 
 import { type FormEvent, useActionState, useEffect, useRef, useState } from "react";
 
+import { DetailsField } from "@/components/admin/details-field";
 import { ImageFields } from "@/components/admin/image-fields";
 import { Button } from "@/components/ui/button";
 import { SelectField } from "@/components/ui/select-field";
@@ -105,7 +106,9 @@ export function ProductForm({ mode, categories, initial, updatedAt }: ProductFor
     const match = /^images\.(\d+)\.(src|alt)$/.exec(first);
     const target = match
       ? formRef.current?.querySelectorAll<HTMLElement>(`[name="image${match[2] === "src" ? "Src" : "Alt"}"]`)[Number(match[1])]
-      : formRef.current?.querySelector<HTMLElement>(`[name="${first}"]`);
+      : first === "details"
+        ? formRef.current?.querySelector<HTMLElement>('input[aria-label^="Detail "]') // `details` itself is hidden
+        : formRef.current?.querySelector<HTMLElement>(`[name="${first}"]`);
     target?.focus();
   }
 
@@ -161,15 +164,16 @@ export function ProductForm({ mode, categories, initial, updatedAt }: ProductFor
           ))}
         </SelectField>
         <TextField label="Colour" type="text" autoComplete="off" maxLength={PRODUCT_LIMITS.colour} {...field("colour")} onChange={(e) => set("colour", e.target.value)} />
-        <TextArea label="Description" rows={5} maxLength={PRODUCT_LIMITS.description} {...field("description")} onChange={(e) => set("description", e.target.value)} className="md:col-span-2" />
-        <TextArea
-          label="Product details"
-          rows={4}
-          {...field("details")}
-          onChange={(e) => set("details", e.target.value)}
-          hint="One per line, e.g. 100% wool. Shown as a list on the product page."
-          className="md:col-span-2"
-        />
+        <TextArea label="Description" rows={3} maxLength={PRODUCT_LIMITS.description} {...field("description")} onChange={(e) => set("description", e.target.value)} className="md:col-span-2" />
+        <div className="md:col-span-2">
+          <DetailsField
+            value={values.details}
+            onChange={(details) => set("details", details)}
+            onBlur={() => blur("details")}
+            error={errorFor("details")}
+            readOnly={pending}
+          />
+        </div>
         <TextField
           label="Badge (optional)"
           type="text"
