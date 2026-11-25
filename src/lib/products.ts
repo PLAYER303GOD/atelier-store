@@ -193,10 +193,10 @@ export async function getCollection(slug: string): Promise<Collection | undefine
 export async function getCollectionProducts(collectionSlug: string): Promise<Product[]> {
   "use cache";
   cacheProducts();
-  const rows = await selectProducts()
+  // The filter goes into selectProducts (never a second .where(), which would replace visibility).
+  const rows = await selectProducts(eq(collections.slug, collectionSlug))
     .innerJoin(productCollections, eq(productCollections.productId, products.id))
     .innerJoin(collections, eq(collections.id, productCollections.collectionId))
-    .where(and(visible, eq(collections.slug, collectionSlug)))
     .orderBy(desc(products.createdAt), asc(products.id));
   return rows.map(toProduct);
 }
