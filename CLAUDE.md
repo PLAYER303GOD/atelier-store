@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Stack
 
-Next.js 16 (App Router, `src/` dir, `@/*` → `src/*`) · TypeScript · Tailwind CSS v4 (via `@tailwindcss/turbopack`) · Better Auth · Drizzle ORM · Neon Postgres. pnpm is the package manager (`pnpm-lock.yaml`); `package-lock.json` is a leftover from the initial npm setup.
+Next.js 16 (App Router, `src/` dir, `@/*` → `src/*`) · TypeScript · Tailwind CSS v4 (via `@tailwindcss/turbopack`) · Better Auth · Drizzle ORM · Neon Postgres. pnpm is the package manager (`pnpm-lock.yaml`, version pinned in `package.json` `packageManager`). CI (`.github/workflows/ci.yml`) runs `pnpm install --frozen-lockfile`, `lint`, `typecheck` and `check:admin`, so a dependency change must update the lockfile. README screenshots live in `docs/screenshots`.
 
 Next 16 has breaking changes vs. older versions — check `node_modules/next/dist/docs/` before using Next APIs (see AGENTS.md). Notably `next.config.ts` enables `cacheComponents` and `partialPrefetching`: anything reading cookies/headers/session runs at request time and must sit behind `<Suspense>` (see `node_modules/next/dist/docs/01-app/02-guides/authentication-with-cache-components.md`).
 
