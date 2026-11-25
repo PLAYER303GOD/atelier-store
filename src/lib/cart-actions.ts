@@ -19,6 +19,7 @@ import {
   deleteLine,
   findGuestCartId,
   findProductForCart,
+  findProductIdForRemoval,
   getLineQuantity,
   getOrCreateUserCartId,
   MAX_PER_LINE,
@@ -110,10 +111,10 @@ export async function updateBagQuantity(slug: string, quantity: number): Promise
 export async function removeFromBag(slug: string): Promise<BagActionResult> {
   if (!validSlug(slug)) return fail("That isn't a valid request.");
   try {
-    const product = await findProductForCart(slug);
-    if (product) await deleteLine(await cartIdForWrite(), product.id);
+    const productId = await findProductIdForRemoval(slug);
+    if (productId !== undefined) await deleteLine(await cartIdForWrite(), productId);
     refresh();
-    return { ok: true, quantity: 0, available: product?.available ?? 0, limited: false };
+    return { ok: true, quantity: 0, available: 0, limited: false };
   } catch (error) {
     console.error("removeFromBag failed", error);
     return fail(GENERIC_ERROR);

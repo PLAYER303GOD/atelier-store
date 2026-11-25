@@ -1,15 +1,19 @@
-// Server-side catalogue queries. Returns the same `Product` shape the UI has always used.
+﻿// Server-side catalogue queries. Returns the same `Product` shape the UI has always used.
 // Each read is cached ("use cache") so pages stay in the static shell; the `products` tag lets
 // future writes invalidate them with updateTag("products"). Stock may be up to ~1 minute stale.
 
-import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, type SQL, sql } from "drizzle-orm";
 import { cacheLife, cacheTag } from "next/cache";
 
 import { db } from "@/db";
 import { categories, collections, productCollections, products, stocks } from "@/db/schema";
 import { MAX_SEARCH_LENGTH, type Product } from "@/lib/catalog";
 
-function selectProducts() {
+/** Customers only ever see active products; hidden ones are left out of every read below. */
+const visible = eq(products.status, "active");
+
+/** The shared product select, always limited to visible products (plus `where`, if given). */
+function selectProducts(where?: SQL) {
   return db
     .select({
       slug: products.slug,
@@ -28,6 +32,7 @@ function selectProducts() {
     .from(products)
     .innerJoin(categories, eq(products.categoryId, categories.id))
     .leftJoin(stocks, eq(stocks.productId, products.id))
+    .where(where ? and(visible, where) : visible)
     .$dynamic();
 }
 
@@ -49,7 +54,7 @@ function cacheProducts() {
 export async function getProduct(slug: string): Promise<Product | undefined> {
   "use cache";
   cacheProducts();
-  const [row] = await selectProducts().where(eq(products.slug, slug)).limit(1);
+  const [row] = await selectProducts(eq(products.slug, slug)).limit(1);
   return row && toProduct(row);
 }
 
@@ -65,8 +70,7 @@ export async function getNewArrivals(limit = 8): Promise<Product[]> {
 export async function getRelatedProducts(product: Pick<Product, "slug" | "category">, count = 4) {
   "use cache";
   cacheProducts();
-  const rows = await selectProducts()
-    .where(ne(products.slug, product.slug))
+  const rows = await selectProducts(ne(products.slug, product.slug))
     .orderBy(
       desc(sql`${categories.slug} = ${product.category.slug}`),
       desc(products.createdAt),
@@ -81,7 +85,7 @@ export async function getProductsBySlugs(slugs: string[]): Promise<Product[]> {
   "use cache";
   cacheProducts();
   if (slugs.length === 0) return [];
-  const rows = await selectProducts().where(inArray(products.slug, slugs));
+  const rows = await selectProducts(inArray(products.slug, slugs));
   const bySlug = new Map(rows.map((row) => [row.slug, toProduct(row)]));
   return slugs.flatMap((slug) => bySlug.get(slug) ?? []);
 }
@@ -101,8 +105,7 @@ export async function getCategory(slug: string): Promise<Product["category"] | u
 export async function getCategoryProducts(categorySlug: string): Promise<Product[]> {
   "use cache";
   cacheProducts();
-  const rows = await selectProducts()
-    .where(eq(categories.slug, categorySlug))
+  const rows = await selectProducts(eq(categories.slug, categorySlug))
     .orderBy(desc(products.createdAt), asc(products.id));
   return rows.map(toProduct);
 }
@@ -133,8 +136,7 @@ export async function searchProducts(query: string): Promise<Product[]> {
 
   const haystack = sql`concat_ws(' ', ${products.name}, ${products.colour}, ${categories.name}, ${products.description}, array_to_string(${products.details}, ' '))`;
   const strong = sql`concat_ws(' ', ${products.name}, ${products.colour}, ${categories.name})`;
-  const rows = await selectProducts()
-    .where(and(...terms.map((term) => sql`${haystack} ilike ${likePattern(term)}`)))
+  const rows = await selectProducts(and(...terms.map((term) => sql`${haystack} ilike ${likePattern(term)}`)))
     .orderBy(
       desc(sql.join(terms.map((term) => sql`(${strong} ilike ${likePattern(term)})::int`), sql` + `)),
       desc(products.createdAt),
@@ -160,6 +162,7 @@ export async function getCategorySummaries(): Promise<CategorySummary[]> {
     })
     .from(categories)
     .innerJoin(products, eq(products.categoryId, categories.id))
+    .where(visible)
     .orderBy(categories.id, desc(products.createdAt), asc(products.id));
   return rows
     .map(({ images, ...row }) => ({ ...row, cover: images[0] }))
@@ -193,7 +196,7 @@ export async function getCollectionProducts(collectionSlug: string): Promise<Pro
   const rows = await selectProducts()
     .innerJoin(productCollections, eq(productCollections.productId, products.id))
     .innerJoin(collections, eq(collections.id, productCollections.collectionId))
-    .where(eq(collections.slug, collectionSlug))
+    .where(and(visible, eq(collections.slug, collectionSlug)))
     .orderBy(desc(products.createdAt), asc(products.id));
   return rows.map(toProduct);
 }
@@ -242,6 +245,6 @@ export async function getStockOverview(): Promise<StockOverview> {
 export async function getProductSlugs(): Promise<string[]> {
   "use cache";
   cacheProducts();
-  const rows = await db.select({ slug: products.slug }).from(products);
+  const rows = await db.select({ slug: products.slug }).from(products).where(visible);
   return rows.map((row) => row.slug);
 }

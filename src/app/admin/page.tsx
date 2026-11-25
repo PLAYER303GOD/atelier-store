@@ -37,7 +37,7 @@ async function AdminContent() {
   const admin = await requireAdmin("/admin");
   const overview = await getStockOverview();
   const stats = [
-    { label: "Products", value: overview.products },
+    { label: "Products for sale", value: overview.products },
     { label: "Categories", value: overview.categories },
     { label: "Collections", value: overview.collections },
     { label: "Out of stock", value: overview.outOfStock },

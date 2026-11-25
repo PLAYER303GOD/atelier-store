@@ -6,6 +6,13 @@ import { check, index, integer, jsonb, pgTable, primaryKey, text, timestamp } fr
 
 export type ProductImage = { src: string; alt: string };
 
+/**
+ * Whether customers can see and buy a product. "hidden": gone from listings, search, saved items
+ * and its page (404); can't be added to a bag or checked out. Orders that contain it are unaffected.
+ */
+export const PRODUCT_STATUSES = ["active", "hidden"] as const;
+export type ProductStatus = (typeof PRODUCT_STATUSES)[number];
+
 export const categories = pgTable("categories", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   slug: text("slug").notNull().unique(),
@@ -31,6 +38,7 @@ export const products = pgTable(
     /** Ordered; the first image is the card shot. Always at least one. */
     images: jsonb("images").$type<[ProductImage, ...ProductImage[]]>().notNull(),
     badge: text("badge"),
+    status: text("status").$type<ProductStatus>().notNull().default("active"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -40,6 +48,7 @@ export const products = pgTable(
   (t) => [
     index("products_category_id_idx").on(t.categoryId),
     check("products_price_cents_non_negative", sql`${t.priceCents} >= 0`),
+    check("products_status_valid", sql`${t.status} in ('active', 'hidden')`),
   ],
 );
 

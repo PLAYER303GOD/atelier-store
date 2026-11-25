@@ -20,6 +20,7 @@ import {
   type OrderStatus,
   orderItems,
   orders,
+  products,
   stocks,
   stripeEvents,
 } from "@/db/schema";
@@ -112,9 +113,13 @@ export async function createOrderWithHold(input: {
         on conflict (product_id) do nothing
       `),
       // Take the stock. A shortfall violates stocks_quantity_non_negative and rolls back the batch.
+      // A product hidden since the bag was read counts as having none: it takes more than there
+      // is, so it fails the same check (in this same statement, so there's no race).
       db.execute(sql`
-        update ${stocks} set quantity = ${stocks.quantity} - oi.quantity, updated_at = now()
-        from ${orderItems} oi
+        update ${stocks}
+        set quantity = ${stocks.quantity} - case when p.status = 'active' then oi.quantity else ${stocks.quantity} + 1 end,
+            updated_at = now()
+        from ${orderItems} oi join ${products} p on p.id = oi.product_id
         where oi.order_id = ${orderId} and ${stocks.productId} = oi.product_id
       `),
     ]);

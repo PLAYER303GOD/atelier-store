@@ -25,9 +25,14 @@ export const SLUG_PATTERN = /^[a-z0-9-]{1,100}$/;
 /** 256-bit random, URL-safe: unguessable, so possessing it is the authorization for a guest bag. */
 export const newCartToken = () => randomBytes(32).toString("base64url");
 
-/** min(stock, MAX_PER_LINE) for a product id expression, read live. */
+/** min(stock, MAX_PER_LINE) for a product id expression, read live; 0 for a hidden product. */
 const availableFor = (productId: unknown) =>
-  sql`least(coalesce((select ${stocks.quantity} from ${stocks} where ${stocks.productId} = ${productId}), 0), ${MAX_PER_LINE})`;
+  sql`case when exists (select 1 from ${products} where ${products.id} = ${productId} and ${products.status} = 'active')
+    then least(coalesce((select ${stocks.quantity} from ${stocks} where ${stocks.productId} = ${productId}), 0), ${MAX_PER_LINE})
+    else 0 end`;
+
+/** Live availability for a row already joined to products and (left) stocks. 0 when hidden. */
+const joinedAvailable = sql<number>`case when ${products.status} = 'active' then least(coalesce(${stocks.quantity}, 0), ${MAX_PER_LINE}) else 0 end`;
 
 // ── Carts ────────────────────────────────────────────────────────────────
 
@@ -85,14 +90,23 @@ export async function mergeGuestCartIntoUser(token: string, userId: string): Pro
 
 // ── Lines ────────────────────────────────────────────────────────────────
 
-/** Product id and live stock for a slug (uncached: the catalogue cache can be a minute old). */
+/**
+ * Product id and live stock for a slug (uncached: the catalogue cache can be a minute old).
+ * A hidden product is treated as not existing, so it can't be added.
+ */
 export async function findProductForCart(slug: string): Promise<{ id: number; available: number } | undefined> {
   const [row] = await db
     .select({ id: products.id, available: sql<number>`${availableFor(products.id)}`.mapWith(Number) })
     .from(products)
-    .where(eq(products.slug, slug))
+    .where(and(eq(products.slug, slug), eq(products.status, "active")))
     .limit(1);
   return row;
+}
+
+/** Product id for a slug whatever its status: removing a line must work for hidden products too. */
+export async function findProductIdForRemoval(slug: string): Promise<number | undefined> {
+  const [row] = await db.select({ id: products.id }).from(products).where(eq(products.slug, slug)).limit(1);
+  return row?.id;
 }
 
 export async function getLineQuantity(cartId: number, productId: number): Promise<number> {
@@ -178,7 +192,7 @@ export async function readLines(cartId: number): Promise<CartRow[]> {
       images: products.images,
       unitPriceCents: products.priceCents,
       quantity: cartItems.quantity,
-      available: sql<number>`least(coalesce(${stocks.quantity}, 0), ${MAX_PER_LINE})`.mapWith(Number),
+      available: joinedAvailable.mapWith(Number),
     })
     .from(cartItems)
     .innerJoin(products, eq(products.id, cartItems.productId))
@@ -193,9 +207,10 @@ export async function readLines(cartId: number): Promise<CartRow[]> {
 export async function countItems(cartId: number): Promise<number> {
   const [row] = await db
     .select({
-      count: sql<number>`coalesce(sum(least(${cartItems.quantity}, least(coalesce(${stocks.quantity}, 0), ${MAX_PER_LINE}))), 0)`.mapWith(Number),
+      count: sql<number>`coalesce(sum(least(${cartItems.quantity}, ${joinedAvailable})), 0)`.mapWith(Number),
     })
     .from(cartItems)
+    .innerJoin(products, eq(products.id, cartItems.productId))
     .leftJoin(stocks, eq(stocks.productId, cartItems.productId))
     .where(eq(cartItems.cartId, cartId));
   return row?.count ?? 0;
