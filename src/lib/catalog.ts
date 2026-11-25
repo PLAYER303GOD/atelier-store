@@ -97,14 +97,15 @@ export function getStockStatus(stock: number): StockStatus {
   return { state: "in-stock", label: "In stock" };
 }
 
-const usd = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 0,
-});
+const usdWhole = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+const usdCents = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 });
 
+/**
+ * "$1,290" for whole dollars (the catalogue's usual look), "$1,290.50" otherwise. Never rounds:
+ * the amount shown is the amount charged.
+ */
 export function formatPrice(cents: number) {
-  return usd.format(cents / 100);
+  return cents % 100 === 0 ? usdWhole.format(cents / 100) : usdCents.format(cents / 100);
 }
 
 /** Longest search query the site accepts (input maxLength, page and API all cap to it). */
