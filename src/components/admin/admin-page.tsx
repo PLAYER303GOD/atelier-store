@@ -34,8 +34,3 @@ export function AdminSectionSkeleton({ label }: { label: string }) {
     </div>
   );
 }
-
-/** Placeholder body for a section whose tools arrive in a later step. */
-export function AdminComingNext({ children }: { children: ReactNode }) {
-  return <p className="border-t py-8 text-body text-muted">{children}</p>;
-}
