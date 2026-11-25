@@ -10,7 +10,7 @@
 
 import { randomInt } from "node:crypto";
 
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import {
@@ -321,16 +321,60 @@ export type OrderSummary = {
   totalCents: number;
   shipping: (typeof orders.$inferSelect)["shipping"];
   createdAt: Date;
+  paidAt: Date | null;
   lines: { slug: string; name: string; colour: string; image: Image; unitPriceCents: number; quantity: number }[];
 };
 
 /** An order by its Checkout Session id, only if it belongs to `userId`. */
 export async function findOrderBySession(sessionId: string, userId: string): Promise<OrderSummary | undefined> {
-  const [order] = await db
-    .select()
+  return loadOrderSummary(and(eq(orders.stripeCheckoutSessionId, sessionId), eq(orders.userId, userId)));
+}
+
+// ── Order history ───────────────────────────────────────────────────────
+
+/**
+ * Orders a customer sees in their history: ones they paid for, or whose payment is in progress or
+ * failed. Pending, expired and cancelled checkouts were never orders from their side (an open one
+ * is shown on the bag instead).
+ */
+export const HISTORY_STATUSES = ["paid", "processing", "failed"] as const satisfies readonly OrderStatus[];
+
+export type OrderListItem = {
+  reference: string;
+  status: OrderStatus;
+  totalCents: number;
+  createdAt: Date;
+  itemCount: number;
+  /** The first line's image, for the row thumbnail. */
+  image: Image | null;
+};
+
+/** The customer's order history, newest first. Only `userId`'s orders, in HISTORY_STATUSES. */
+export async function listOrdersForUser(userId: string): Promise<OrderListItem[]> {
+  const rows = await db
+    .select({
+      reference: orders.reference,
+      status: orders.status,
+      totalCents: orders.totalCents,
+      createdAt: orders.createdAt,
+      itemCount: sql<number>`(select coalesce(sum(oi.quantity), 0) from ${orderItems} oi where oi.order_id = ${orders.id})`.mapWith(Number),
+      image: sql<Image | null>`(select oi.image from ${orderItems} oi where oi.order_id = ${orders.id} order by oi.created_at, oi.product_id limit 1)`,
+    })
     .from(orders)
-    .where(and(eq(orders.stripeCheckoutSessionId, sessionId), eq(orders.userId, userId)))
-    .limit(1);
+    .where(and(eq(orders.userId, userId), inArray(orders.status, [...HISTORY_STATUSES])))
+    .orderBy(desc(orders.createdAt));
+  return rows;
+}
+
+/** One order from the customer's history by its public reference; undefined if not theirs or hidden. */
+export async function findOrderForUser(reference: string, userId: string): Promise<OrderSummary | undefined> {
+  return loadOrderSummary(
+    and(eq(orders.reference, reference), eq(orders.userId, userId), inArray(orders.status, [...HISTORY_STATUSES])),
+  );
+}
+
+async function loadOrderSummary(where: SQL | undefined): Promise<OrderSummary | undefined> {
+  const [order] = await db.select().from(orders).where(where).limit(1);
   if (!order) return undefined;
   const lines = await db
     .select({
@@ -350,6 +394,7 @@ export async function findOrderBySession(sessionId: string, userId: string): Pro
     totalCents: order.totalCents,
     shipping: order.shipping,
     createdAt: order.createdAt,
+    paidAt: order.paidAt,
     lines,
   };
 }

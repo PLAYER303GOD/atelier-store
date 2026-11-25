@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn";
 
 const links = [
   { label: "Overview", href: "/account", exact: true },
+  { label: "Orders", href: "/account/orders", exact: false },
   { label: "Personal details", href: "/account/details", exact: false },
   { label: "Saved items", href: "/saved", exact: false },
 ];
