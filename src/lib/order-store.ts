@@ -327,7 +327,16 @@ export type OrderSummary = {
   shipping: (typeof orders.$inferSelect)["shipping"];
   createdAt: Date;
   paidAt: Date | null;
-  lines: { slug: string; name: string; colour: string; image: Image; unitPriceCents: number; quantity: number }[];
+  lines: {
+    slug: string;
+    name: string;
+    colour: string;
+    image: Image;
+    unitPriceCents: number;
+    quantity: number;
+    /** Whether the product page is live now (hidden since the order: show the name without a link). */
+    isPublic: boolean;
+  }[];
 };
 
 /** An order by its Checkout Session id, only if it belongs to `userId`. */
@@ -397,8 +406,10 @@ async function loadOrderSummary(where: SQL | undefined): Promise<OrderSummary | 
       image: orderItems.image,
       unitPriceCents: orderItems.unitPriceCents,
       quantity: orderItems.quantity,
+      isPublic: sql<boolean>`${products.status} = 'active'`,
     })
     .from(orderItems)
+    .innerJoin(products, eq(products.id, orderItems.productId)) // restrict FK: always there
     .where(eq(orderItems.orderId, order.id))
     .orderBy(asc(orderItems.createdAt), asc(orderItems.productId));
   return {

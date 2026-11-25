@@ -35,9 +35,14 @@ export function OrderLineList({ lines }: { lines: OrderSummary["lines"] }) {
             <div className="flex min-w-0 items-start justify-between gap-4">
               <div className="min-w-0">
                 <h3 className="text-body">
-                  <Link href={`/products/${line.slug}`} className="underline-offset-4 hover:underline">
-                    {line.name}
-                  </Link>
+                  {line.isPublic ? (
+                    <Link href={`/products/${line.slug}`} className="underline-offset-4 hover:underline">
+                      {line.name}
+                    </Link>
+                  ) : (
+                    // No longer in the store: the name as bought, without a link to a 404.
+                    line.name
+                  )}
                 </h3>
                 <p className="mt-1 text-body-sm text-muted">
                   {line.colour} · {formatPrice(line.unitPriceCents)}
